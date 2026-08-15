@@ -1,0 +1,21 @@
+# Dependencias
+node_modules/
+
+# Builds
+dist/
+build/
+
+# Env con secretos
+.env
+.env.local
+.env.production
+
+# Expo
+.expo/
+
+# APKs
+*.apk
+
+# Logs
+npm-debug.log*
+*.log
