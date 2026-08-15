@@ -55,3 +55,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: apps/android/android/app/build/outputs/apk/release/app-release.apk
+
+# trigger manual desde la pestana Actions (Run workflow) o con un tag v*
+
