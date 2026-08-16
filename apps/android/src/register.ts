@@ -1,5 +1,23 @@
 import { supabase } from './supabase';
 import { getStoredDriver, setStoredDriver, StoredDriver } from './storage';
+import { saveToken } from './session';
+
+async function persistSession(): Promise<void> {
+  if (!supabase) return;
+  try {
+    const { data } = await supabase.auth.getSession();
+    const sess = data.session;
+    if (sess) {
+      await saveToken({
+        access_token: sess.access_token,
+        refresh_token: sess.refresh_token,
+        expires_at: sess.expires_at ? sess.expires_at * 1000 : Date.now() + 3600_000,
+      });
+    }
+  } catch {
+    // ignorar
+  }
+}
 
 export async function signInDriver(name: string, phone: string): Promise<StoredDriver> {
   if (!supabase) throw new Error('Aplicación sin configurar');
@@ -29,6 +47,7 @@ export async function signInDriver(name: string, phone: string): Promise<StoredD
     name: name.trim(),
     phone: digits,
   };
+  await persistSession();
   await setStoredDriver(driver);
   return driver;
 }
@@ -36,7 +55,10 @@ export async function signInDriver(name: string, phone: string): Promise<StoredD
 export async function ensureDriverSession(driver: StoredDriver): Promise<StoredDriver> {
   if (!supabase) return driver;
   const { data: s } = await supabase.auth.getSession();
-  if (s.session) return driver;
+  if (s.session) {
+    await persistSession();
+    return driver;
+  }
 
   const { data: anon, error: ae } = await supabase.auth.signInAnonymously();
   if (ae || !anon.user) return driver;
@@ -48,5 +70,6 @@ export async function ensureDriverSession(driver: StoredDriver): Promise<StoredD
   if (rce) {
     console.warn('reclaim_driver:', rce.message);
   }
+  await persistSession();
   return driver;
 }

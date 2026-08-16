@@ -1,6 +1,6 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
-import { supabase } from './supabase';
+import { loadToken, refreshToken, reportLocation } from './session';
 import { reportError } from './errors';
 
 export const LOCATION_TASK = 'mc-location-task';
@@ -27,17 +27,9 @@ export function getStats(): TrackingStats {
   return { lastFix, sentCount, lastError };
 }
 
-async function ensureSession(): Promise<boolean> {
-  if (!supabase) return false;
-  const { data } = await supabase.auth.getSession();
-  if (data.session) return true;
-  const { data: refreshed } = await supabase.auth.refreshSession();
-  return Boolean(refreshed.session);
-}
-
 async function sendPoint(loc: Location.LocationObject): Promise<void> {
-  if (!supabase) return;
-  if (!(await ensureSession())) {
+  const token = await loadToken();
+  if (!token) {
     lastError = 'sesión no disponible';
     return;
   }
@@ -48,26 +40,24 @@ async function sendPoint(loc: Location.LocationObject): Promise<void> {
     p_speed: loc.coords.speed,
     p_heading: loc.coords.heading,
   };
-  const { error } = await supabase.rpc('report_location', params);
-  if (error) {
-    if (error.code === 'PGRST301' || /jwt|401|expired/i.test(error.message)) {
-      const { data: refreshed } = await supabase.auth.refreshSession();
-      if (!refreshed.session) {
-        lastError = 'sesión expirada';
-        reportError('send:session', error);
-        return;
-      }
-      const retry = await supabase.rpc('report_location', params);
-      if (retry.error) {
-        lastError = retry.error.message;
-        reportError('send:retry', retry.error);
-        return;
-      }
-    } else {
-      lastError = error.message;
-      reportError('send:rpc', error);
+  let res = await reportLocation(token, params);
+  if (!res.ok && /401|jwt|expired|invalid|PGRST301/i.test(res.err)) {
+    const next = await refreshToken(token);
+    if (!next) {
+      lastError = 'sesión expirada';
+      reportError('send:session', new Error(res.err));
       return;
     }
+    res = await reportLocation(next, params);
+    if (!res.ok) {
+      lastError = res.err;
+      reportError('send:retry', new Error(res.err));
+      return;
+    }
+  } else if (!res.ok) {
+    lastError = res.err;
+    reportError('send:rpc', new Error(res.err));
+    return;
   }
   lastFix = {
     lat: loc.coords.latitude,
