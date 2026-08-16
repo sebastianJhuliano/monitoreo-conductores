@@ -175,9 +175,11 @@ export default function TrackingScreen({ driver }: Props) {
       <View style={s.card}>
         <Text style={s.cardTitle}>Importante</Text>
         <Text style={s.note}>
-          • No cierres la app desde las apps recientes ni la fuerces a detenerse.{'\n'}• La
-          notificación permanente "Monitoreo activo" significa que seguís transmitiendo.{'\n'}• La
-          batería dura más si conectás el celular durante la jornada.
+          • No cierres la app desde las apps recientes ni la fuerces a detenerse.{'\n'}• En
+          Xiaomi/Redmi: activá "Inicio automático" (Ajustes {"›"} Apps {"›"} Monitoreo Conductores {"›"} Otros
+          permisos) para que no la maten.{'\n'}• La notificación permanente "Monitoreo activo"
+          significa que seguís transmitiendo.{'\n'}• La batería dura más si conectás el celular
+          durante la jornada.
         </Text>
       </View>
     </ScrollView>

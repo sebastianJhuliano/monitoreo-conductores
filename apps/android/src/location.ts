@@ -95,8 +95,8 @@ TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
 export async function startTracking(): Promise<void> {
   await Location.startLocationUpdatesAsync(LOCATION_TASK, {
     accuracy: Location.Accuracy.High,
-    distanceInterval: 5,
-    timeInterval: 10_000,
+    distanceInterval: 10,
+    timeInterval: 15_000,
     pausesUpdatesAutomatically: false,
     foregroundService: {
       notificationTitle: 'Monitoreo activo',
