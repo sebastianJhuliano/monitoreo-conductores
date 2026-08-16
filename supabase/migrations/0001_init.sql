@@ -234,6 +234,7 @@ create policy "status: leer propias o admin"
 
 alter publication supabase_realtime add table public.driver_status;
 alter publication supabase_realtime add table public.locations;
+alter publication supabase_realtime add table public.drivers;
 
 -- -------------------------------
 -- Permisos
