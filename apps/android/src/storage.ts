@@ -23,3 +23,21 @@ export async function getStoredDriver(): Promise<StoredDriver | null> {
 export async function setStoredDriver(d: StoredDriver): Promise<void> {
   await AsyncStorage.setItem(KEY, JSON.stringify(d));
 }
+
+const TRACKING_KEY = 'mc_tracking_active';
+
+export async function setTrackingActive(active: boolean): Promise<void> {
+  try {
+    await AsyncStorage.setItem(TRACKING_KEY, active ? '1' : '0');
+  } catch {
+    // ignorar
+  }
+}
+
+export async function getTrackingActive(): Promise<boolean> {
+  try {
+    return (await AsyncStorage.getItem(TRACKING_KEY)) === '1';
+  } catch {
+    return false;
+  }
+}

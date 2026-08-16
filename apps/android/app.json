@@ -2,12 +2,13 @@
   "expo": {
     "name": "Monitoreo Conductores",
     "slug": "monitoreo-conductores",
-    "version": "1.4.0",
+    "version": "1.5.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "scheme": "monitoreo",
     "plugins": [
+      "./plugins/withBootResume",
       "expo-notifications",
       [
         "expo-location",
@@ -22,7 +23,7 @@
     ],
     "android": {
       "package": "com.monitoreo.conductores",
-      "versionCode": 5,
+      "versionCode": 6,
       "adaptiveIcon": {
         "backgroundColor": "#0f172a",
         "foregroundImage": "./assets/android-icon-foreground.png",

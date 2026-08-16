@@ -14,6 +14,7 @@ import * as IntentLauncher from 'expo-intent-launcher';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { getStats, isTracking, startTracking, stopTracking } from '../location';
+import { setTrackingActive } from '../storage';
 import type { StoredDriver } from '../storage';
 
 interface Props {
@@ -85,6 +86,7 @@ export default function TrackingScreen({ driver }: Props) {
         await Notifications.requestPermissionsAsync().catch(() => {});
       }
       await startTracking();
+      setTrackingActive(true);
       setTracking(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo iniciar la transmisión');
@@ -95,6 +97,7 @@ export default function TrackingScreen({ driver }: Props) {
     setError(null);
     try {
       await stopTracking();
+      setTrackingActive(false);
       setTracking(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo detener la transmisión');
@@ -183,9 +186,11 @@ export default function TrackingScreen({ driver }: Props) {
         <Text style={s.note}>
           • No cierres la app desde las apps recientes ni la fuerces a detenerse.{'\n'}• En
           Xiaomi/Redmi: activá "Inicio automático" (Ajustes {"›"} Apps {"›"} Monitoreo Conductores {"›"} Otros
-          permisos) para que no la maten.{'\n'}• La notificación permanente "Monitoreo activo"
-          significa que seguís transmitiendo.{'\n'}• La batería dura más si conectás el celular
-          durante la jornada.
+          permisos) para que no la maten.{'\n'}• En Samsung: Ajustes {"›"} Aplicaciones {"›"} Monitoreo
+          Conductores {"›"} Batería: "Permitir actividad en segundo plano" y activá "Permitir
+          autoinicio".{'\n'}• Si apagás el celular, al prenderlo la app se abre sola y retoma la
+          transmisión.{'\n'}• La notificación permanente "Monitoreo activo" significa que seguís
+          transmitiendo.{'\n'}• La batería dura más si conectás el celular durante la jornada.
         </Text>
       </View>
     </ScrollView>

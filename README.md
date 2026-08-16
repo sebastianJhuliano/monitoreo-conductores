@@ -59,8 +59,9 @@ MonitoreoConductores/
 │   │       ├── components/Sidebar.tsx        → lista online/offline
 │   │       └── types.ts                      → tipos Driver / DriverStatus / LiveDriver
 │   └── android/               APP DEL CONDUCTOR (Expo / React Native)
-│       ├── app.json           → version 1.4.0, versionCode 5, package com.monitoreo.conductores
-│       ├── App.tsx            → arranque: limpia tareas viejas, envía errores pendientes, carga sesión
+│       ├── app.json           → version 1.5.0, versionCode 6, package com.monitoreo.conductores
+│       ├── App.tsx            → arranque: reanuda la transmisión si estaba activa (tras reiniciar el celular)
+│       ├── plugins/withBootResume.js  → config plugin: receptor BOOT_COMPLETED (abre la app al prender el teléfono)
 │       └── src/
 │           ├── config.ts      → lee EXPO_PUBLIC_SUPABASE_URL / _ANON_KEY (variables de entorno)
 │           ├── supabase.ts    → cliente supabase-js PEREZOSO (se crea recién al usarlo; ver nota abajo)
@@ -266,6 +267,13 @@ En la práctica se compila en GitHub Actions (paso 6).
 3. En el mapa se ven todos en vivo (punto con nombre; pulsa si está en movimiento).
 4. Click en un conductor → WhatsApp para coordinar. Click en **Trayectoria** → su recorrido.
 5. Dejar el celular conectado a la corriente; la notificación "Monitoreo activo" indica que sigue transmitiendo.
+
+### Reanudación automática tras apagar/prender el celular (v1.5+)
+
+- La app guarda si la transmisión estaba **activa** (`mc_tracking_active`).
+- Un receptor nativo de arranque (`BootResumeReceiver`, agregado por el config plugin `withBootResume.js`) escucha `BOOT_COMPLETED` y **abre la app sola** cuando el teléfono termina de prender.
+- Al abrirse, si la transmisión estaba activa, la app **reanuda sola** (`startTracking`). El conductor no tiene que tocar nada.
+- Limitación de los fabricantes: en Samsung activar **"Permitir autoinicio"** y en Xiaomi **"Inicio automático"**, si no, el sistema puede bloquear el arranque automático.
 
 ### Configuración en el celular del conductor (IMPORTANTE, sobre todo Xiaomi/Redmi)
 - Permitir ubicación **"todo el tiempo"**.
