@@ -11,6 +11,8 @@ import {
 } from 'react-native';
 import * as Location from 'expo-location';
 import * as IntentLauncher from 'expo-intent-launcher';
+import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import { getStats, isTracking, startTracking, stopTracking } from '../location';
 import type { StoredDriver } from '../storage';
 
@@ -79,6 +81,9 @@ export default function TrackingScreen({ driver }: Props) {
       return;
     }
     try {
+      if (Platform.OS === 'android') {
+        await Notifications.requestPermissionsAsync().catch(() => {});
+      }
       await startTracking();
       setTracking(true);
     } catch (e) {
@@ -121,6 +126,7 @@ export default function TrackingScreen({ driver }: Props) {
   return (
     <ScrollView style={s.root} contentContainerStyle={s.content}>
       <Text style={s.title}>Hola, {driver.name}</Text>
+      <Text style={s.version}>v{Constants.expoConfig?.version ?? '?'}</Text>
 
       <View style={[s.statusCard, tracking ? s.statusOn : s.statusOff]}>
         <View style={[s.dot, tracking ? s.dotOn : s.dotOff]} />
@@ -222,6 +228,11 @@ const s = StyleSheet.create({
     color: '#e2e8f0',
     fontSize: 22,
     fontWeight: '700',
+    marginBottom: 4,
+  },
+  version: {
+    color: '#64748b',
+    fontSize: 12,
     marginBottom: 16,
   },
   statusCard: {

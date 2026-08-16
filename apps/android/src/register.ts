@@ -1,8 +1,9 @@
-import { supabase } from './supabase';
+import { getSupabase } from './supabase';
 import { getStoredDriver, setStoredDriver, StoredDriver } from './storage';
 import { saveToken } from './session';
 
 async function persistSession(): Promise<void> {
+  const supabase = getSupabase();
   if (!supabase) return;
   try {
     const { data } = await supabase.auth.getSession();
@@ -20,6 +21,7 @@ async function persistSession(): Promise<void> {
 }
 
 export async function signInDriver(name: string, phone: string): Promise<StoredDriver> {
+  const supabase = getSupabase();
   if (!supabase) throw new Error('Aplicación sin configurar');
   const digits = phone.replace(/\D/g, '');
   if (digits.length < 8) {
@@ -53,6 +55,7 @@ export async function signInDriver(name: string, phone: string): Promise<StoredD
 }
 
 export async function ensureDriverSession(driver: StoredDriver): Promise<StoredDriver> {
+  const supabase = getSupabase();
   if (!supabase) return driver;
   const { data: s } = await supabase.auth.getSession();
   if (s.session) {

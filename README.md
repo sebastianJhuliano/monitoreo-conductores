@@ -59,23 +59,25 @@ MonitoreoConductores/
 │   │       ├── components/Sidebar.tsx        → lista online/offline
 │   │       └── types.ts                      → tipos Driver / DriverStatus / LiveDriver
 │   └── android/               APP DEL CONDUCTOR (Expo / React Native)
-│       ├── app.json           → version 1.3.0, versionCode 4, package com.monitoreo.conductores
-│       ├── App.tsx            → arranque: limpia tareas viejas, carga sesión, pantalla según estado
+│       ├── app.json           → version 1.4.0, versionCode 5, package com.monitoreo.conductores
+│       ├── App.tsx            → arranque: limpia tareas viejas, envía errores pendientes, carga sesión
 │       └── src/
 │           ├── config.ts      → lee EXPO_PUBLIC_SUPABASE_URL / _ANON_KEY (variables de entorno)
-│           ├── supabase.ts    → cliente supabase-js con AsyncStorage (storageKey 'mc-auth')
+│           ├── supabase.ts    → cliente supabase-js PEREZOSO (se crea recién al usarlo; ver nota abajo)
 │           ├── session.ts     → guarda/lee/refresca el token JWT y hace report_location con FETCH PLANO
-│           ├── errors.ts      → reportError() manda errores JS a Supabase (tabla app_errors)
+│           ├── errors.ts      → reportError() guarda el error en el dispositivo Y lo manda a Supabase
+│           ├── errorlog.ts    → cola de errores persistente en AsyncStorage (sobrevive a crashes)
 │           ├── storage.ts     → guarda el conductor en AsyncStorage (clave 'mc_driver')
 │           ├── register.ts    → sign-in ANÓNIMO + insert en drivers + reclaim_driver + guarda token
 │           ├── location.ts    → TAREA DE FONDO (expo-task-manager) + foreground service
 │           └── screens/
 │               ├── RegisterScreen.tsx  → formulario nombre + teléfono
-│               └── TrackingScreen.tsx  → botón transmitir/detener, permisos, stats, guía Xiaomi
+│               └── TrackingScreen.tsx  → transmitir/detener, permisos, stats, versión en pantalla, guía
 ├── supabase/
 │   └── migrations/
 │       ├── 0001_init.sql      → tablas, RPCs, RLS, realtime, trigger primer-admin
-│       └── 0002_app_errors.sql → tabla app_errors + RPC report_error (diagnóstico de crashes)
+│       ├── 0002_app_errors.sql → tabla app_errors + RPC report_error (diagnóstico de crashes)
+│       └── 0003_app_errors_lectura_abierta.sql → el admin puede leer app_errors desde afuera
 └── .github/workflows/
     ├── build-apk.yml          → compila el APK (tag v* o manual) y crea Release
     └── deploy-pages.yml       → publica el panel en GitHub Pages (push a master)
@@ -171,11 +173,15 @@ Cuando la app pasa a segundo plano, Android ejecuta la tarea en un **contexto he
 - La tarea lee el token, y si el servidor responde 401/expired, lo **refresca** vía `POST /auth/v1/token?grant_type=refresh_token` y reintenta.
 - Toda esta lógica está en `src/session.ts`.
 
+**OJO adicional (causa de crash descubierta y corregida en v1.4):** `createClient()` de supabase-js ejecuta `AsyncStorage.getItem()` **en el momento de construirse**. Si el cliente se crea al cargar el bundle en el contexto headless, la app puede crashear a nivel nativo (sin error JS visible). Por eso el cliente de `src/supabase.ts` se crea **perezosamente** (`getSupabase()`, recién al primer uso) y nunca en el arranque del bundle.
+
 ### Registro de errores (diagnóstico de crashes)
 
-- `src/errors.ts`: `reportError(where, err)` hace `POST /rest/v1/rpc/report_error` → tabla `app_errors`.
-- `App.tsx`: registra un **manejador global de errores JS** (`ErrorUtils.setGlobalHandler`) + un **ErrorBoundary** → cualquier error JS se guarda en Supabase.
+- `src/errors.ts`: `reportError(where, err)` guarda el error **en el dispositivo** (cola en AsyncStorage, `src/errorlog.ts`) Y hace `POST /rest/v1/rpc/report_error` → tabla `app_errors`.
+- En el próximo arranque, `flushErrorLog()` envía los errores que quedaron guardados (sobreviven aunque el proceso muera justo después del error).
+- `App.tsx`: registra un **manejador global de errores JS** (`ErrorUtils.setGlobalHandler`) + un **ErrorBoundary**.
 - La tarea reporta sus propios errores (`task:error`, `send:rpc`, etc.).
+- La migración `0003` abre la **lectura** de `app_errors` (solo stack traces, sin datos personales) para que cualquiera pueda consultarla desde fuera.
 - **Importante para depurar**: si la app crashea y en `app_errors` no aparece nada → el crash es **nativo** (no JS).
 
 ---
@@ -222,7 +228,7 @@ Los `.env` locales están en `.gitignore`. En la build de CI el `.env` se genera
 
 ### Supabase (una sola vez)
 1. Crear proyecto free en supabase.com. Anotar Project URL y anon key.
-2. SQL Editor → pegar `0001_init.sql` → Run. Luego `0002_app_errors.sql` → Run.
+2. SQL Editor → pegar `0001_init.sql` → Run. Luego `0002_app_errors.sql` → Run. Luego `0003_app_errors_lectura_abierta.sql` → Run.
 3. Authentication → Providers → Email: desactivar "Confirm email". Activar **Anonymous** sign-ins.
 4. Dashboard → Realtime: confirmar que `driver_status` y `locations` están publicadas.
 
@@ -271,9 +277,11 @@ En la práctica se compila en GitHub Actions (paso 6).
 ## 10) Problemas conocidos y depuración
 
 ### La app "se cierra sola" / crashea (SÍNTOMA PRINCIPAL ACTUAL)
-- Síntoma: al instalar el APK, la app se cierra y Android muestra "Monitoreo Conductores se cerró / se bloquea con frecuencia" (muy común en Xiaomi/Redmi, que además matan la app por batería).
-- Ya aplicados como defensa: manejador global de errores JS + ErrorBoundary (→ tabla `app_errors`), limpieza de tareas de fondo viejas al abrir, y tarea de fondo con `fetch` plano en vez de supabase-js.
-- **Para diagnosticar**: si vuelve a fallar, mirar la tabla `app_errors` en Supabase (Table Editor). Si hay filas → es un error JS capturado (el `where_` y `stack` dicen dónde). Si NO hay filas → el crash es nativo y hay que sacar el log con `adb logcat` (o `adb logcat *:E AndroidRuntime`).
+- Síntoma: al instalar el APK, la app se cierra y Android muestra "Monitoreo Conductores se cerró / se bloquea con frecuencia" (los fabricantes además matan la app por batería).
+- **Causa más probable (corregida en v1.4)**: `createClient()` de supabase-js tocaba AsyncStorage al cargar el bundle en el contexto headless de la tarea de fondo → crash nativo al primer evento de ubicación y, desde entonces, en cada apertura (porque la tarea queda registrada y el sistema la reactiva al arrancar el proceso).
+- Defensas ya aplicadas: cliente supabase **perezoso**, tarea de fondo con `fetch` plano, limpieza de tareas viejas al abrir, manejador global de errores JS + ErrorBoundary, cola de errores persistente, permiso de notificaciones pedido en Android 13+.
+- **Para diagnosticar**: consultar `app_errors` en Supabase (Table Editor) o vía REST (ahora es de lectura abierta). Si hay filas → error JS capturado (el `where_` y `stack` dicen dónde). Si NO hay filas → crash nativo y hay que sacar el log con `adb logcat *:E AndroidRuntime`.
+- La app muestra su **versión en pantalla** (arriba del nombre): sirve para confirmar qué APK tiene instalado el conductor.
 - **Pregunta clave que aún no está respondida**: ¿qué celular/versión de Android usa el conductor de prueba?
 
 ### Limitaciones honestas

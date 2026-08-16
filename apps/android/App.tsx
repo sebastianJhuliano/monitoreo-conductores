@@ -3,12 +3,14 @@ import type { ReactNode } from 'react';
 import { SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as TaskManager from 'expo-task-manager';
+import * as Location from 'expo-location';
 import RegisterScreen from './src/screens/RegisterScreen';
 import TrackingScreen from './src/screens/TrackingScreen';
 import { getStoredDriver, type StoredDriver } from './src/storage';
 import { ensureDriverSession } from './src/register';
 import { isConfigured } from './src/config';
-import { reportError } from './src/errors';
+import { reportError, flushErrorLog } from './src/errors';
+import { LOCATION_TASK } from './src/location';
 
 type State = 'loading' | 'config' | 'register' | 'tracking';
 
@@ -59,9 +61,12 @@ export default function App() {
         // Limpiar tareas de fondo que hayan quedado de un cierre anterior,
         // para evitar que el sistema intente ejecutarlas y crashee la app.
         await TaskManager.unregisterAllTasksAsync();
+        await Location.stopLocationUpdatesAsync(LOCATION_TASK).catch(() => {});
       } catch (e) {
         reportError('startup:unregister', e);
       }
+      // Enviar errores que quedaron guardados de un cierre anterior.
+      flushErrorLog();
       if (!isConfigured) {
         setState('config');
         return;
