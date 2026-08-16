@@ -1,5 +1,5 @@
 import { getSupabase } from './supabase';
-import { getStoredDriver, setStoredDriver, StoredDriver } from './storage';
+import { getStoredDriver, setStoredDriver, clearStoredDriver, StoredDriver } from './storage';
 import { saveToken } from './session';
 
 async function persistSession(): Promise<void> {
@@ -54,7 +54,7 @@ export async function signInDriver(name: string, phone: string): Promise<StoredD
   return driver;
 }
 
-export async function ensureDriverSession(driver: StoredDriver): Promise<StoredDriver> {
+export async function ensureDriverSession(driver: StoredDriver): Promise<StoredDriver | null> {
   const supabase = getSupabase();
   if (!supabase) return driver;
   const { data: s } = await supabase.auth.getSession();
@@ -71,6 +71,12 @@ export async function ensureDriverSession(driver: StoredDriver): Promise<StoredD
     p_phone: driver.phone,
   });
   if (rce) {
+    // El conductor ya no existe (lo borró el admin) → ofrecer registrarse de nuevo.
+    if (/no autorizado/i.test(rce.message)) {
+      await clearStoredDriver();
+      await saveToken(null);
+      return null;
+    }
     console.warn('reclaim_driver:', rce.message);
   }
   await persistSession();

@@ -84,8 +84,12 @@ export default function App() {
           setState('register');
           return;
         }
-        await ensureDriverSession(stored);
-        setDriver(stored);
+        const restored = await ensureDriverSession(stored);
+        if (!restored) {
+          setState('register');
+          return;
+        }
+        setDriver(restored);
         setState('tracking');
       } catch (e) {
         reportError('startup:load', e);
@@ -119,7 +123,15 @@ export default function App() {
             }}
           />
         )}
-        {state === 'tracking' && driver && <TrackingScreen driver={driver} />}
+        {state === 'tracking' && driver && (
+          <TrackingScreen
+            driver={driver}
+            onReset={() => {
+              setDriver(null);
+              setState('register');
+            }}
+          />
+        )}
       </SafeAreaView>
     </Boundary>
   );

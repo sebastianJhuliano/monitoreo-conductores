@@ -1,6 +1,7 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
-import { loadToken, refreshToken, reportLocation } from './session';
+import { loadToken, refreshToken, reportLocation, saveToken } from './session';
+import { clearStoredDriver } from './storage';
 import { reportError } from './errors';
 
 export const LOCATION_TASK = 'mc-location-task';
@@ -55,6 +56,15 @@ async function sendPoint(loc: Location.LocationObject): Promise<void> {
       return;
     }
   } else if (!res.ok) {
+    // El conductor ya no existe (lo borró el admin): limpiar para que
+    // al reabrir la app aparezca la pantalla de registro.
+    if (/no registrado/i.test(res.err)) {
+      lastError = 'Tu cuenta fue eliminada por el administrador';
+      reportError('send:deleted', new Error(res.err));
+      await clearStoredDriver();
+      await saveToken(null);
+      return;
+    }
     lastError = res.err;
     reportError('send:rpc', new Error(res.err));
     return;

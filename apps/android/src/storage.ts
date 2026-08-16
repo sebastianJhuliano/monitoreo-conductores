@@ -24,6 +24,14 @@ export async function setStoredDriver(d: StoredDriver): Promise<void> {
   await AsyncStorage.setItem(KEY, JSON.stringify(d));
 }
 
+export async function clearStoredDriver(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(KEY);
+  } catch {
+    // ignorar
+  }
+}
+
 const TRACKING_KEY = 'mc_tracking_active';
 
 export async function setTrackingActive(active: boolean): Promise<void> {

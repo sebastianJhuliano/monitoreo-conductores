@@ -19,13 +19,14 @@ import type { StoredDriver } from '../storage';
 
 interface Props {
   driver: StoredDriver;
+  onReset?: () => void;
 }
 
 function fmt(n: number | null, digits = 1): string {
   return n === null || n === undefined || Number.isNaN(n) ? '—' : n.toFixed(digits);
 }
 
-export default function TrackingScreen({ driver }: Props) {
+export default function TrackingScreen({ driver, onReset }: Props) {
   const [tracking, setTracking] = useState(false);
   const [checking, setChecking] = useState(true);
   const [stats, setStats] = useState(getStats());
@@ -144,6 +145,17 @@ export default function TrackingScreen({ driver }: Props) {
       </View>
 
       {error && <Text style={s.error}>{error}</Text>}
+
+      {stats.lastError && /no registrado|eliminado/i.test(stats.lastError) && (
+        <View style={s.card}>
+          <Text style={s.warn}>{stats.lastError}. Registrate de nuevo para seguir transmitiendo.</Text>
+          {onReset && (
+            <TouchableOpacity style={s.smallBtn} onPress={onReset}>
+              <Text style={s.smallBtnText}>Registrarme de nuevo</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
 
       <TouchableOpacity
         style={[s.bigBtn, tracking ? s.bigBtnStop : s.bigBtnStart]}
