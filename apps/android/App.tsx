@@ -1,13 +1,53 @@
-import { useEffect, useState } from 'react';
+import { Component, useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import * as TaskManager from 'expo-task-manager';
 import RegisterScreen from './src/screens/RegisterScreen';
 import TrackingScreen from './src/screens/TrackingScreen';
 import { getStoredDriver, type StoredDriver } from './src/storage';
 import { ensureDriverSession } from './src/register';
 import { isConfigured } from './src/config';
+import { reportError } from './src/errors';
 
 type State = 'loading' | 'config' | 'register' | 'tracking';
+
+// Captura global de errores JS: los mandamos a Supabase para diagnosticar.
+const g = globalThis as unknown as {
+  ErrorUtils?: {
+    getGlobalHandler?: () => (e: unknown, f: boolean) => void;
+    setGlobalHandler?: (h: (e: unknown, f: boolean) => void) => void;
+  };
+};
+if (g.ErrorUtils) {
+  const gh = g.ErrorUtils.getGlobalHandler?.();
+  g.ErrorUtils.setGlobalHandler?.((error: unknown, isFatal: boolean) => {
+    reportError('global', error);
+    if (gh) gh(error, isFatal);
+  });
+}
+
+class Boundary extends Component<{ children: ReactNode }, { err: Error | null }> {
+  state = { err: null as Error | null };
+  static getDerivedStateFromError(err: Error) {
+    return { err };
+  }
+  componentDidCatch(err: Error) {
+    reportError('boundary', err);
+  }
+  render() {
+    if (this.state.err) {
+      return (
+        <View style={s.center}>
+          <Text style={s.error}>
+            Ocurrió un error inesperado. Volvé a abrir la app y tocá "Empezar a transmitir".
+          </Text>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export default function App() {
   const [state, setState] = useState<State>('loading');
@@ -15,47 +55,61 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
+      try {
+        // Limpiar tareas de fondo que hayan quedado de un cierre anterior,
+        // para evitar que el sistema intente ejecutarlas y crashee la app.
+        await TaskManager.unregisterAllTasksAsync();
+      } catch (e) {
+        reportError('startup:unregister', e);
+      }
       if (!isConfigured) {
         setState('config');
         return;
       }
-      const stored = await getStoredDriver();
-      if (!stored) {
+      try {
+        const stored = await getStoredDriver();
+        if (!stored) {
+          setState('register');
+          return;
+        }
+        await ensureDriverSession(stored);
+        setDriver(stored);
+        setState('tracking');
+      } catch (e) {
+        reportError('startup:load', e);
         setState('register');
-        return;
       }
-      await ensureDriverSession(stored);
-      setDriver(stored);
-      setState('tracking');
     })();
   }, []);
 
   return (
-    <SafeAreaView style={s.root}>
-      <StatusBar style="light" />
-      {state === 'loading' && (
-        <View style={s.center}>
-          <Text style={s.muted}>Cargando…</Text>
-        </View>
-      )}
-      {state === 'config' && (
-        <View style={s.center}>
-          <Text style={s.error}>
-            La app no está configurada. Definí EXPO_PUBLIC_SUPABASE_URL y
-            EXPO_PUBLIC_SUPABASE_ANON_KEY y volvé a compilar.
-          </Text>
-        </View>
-      )}
-      {state === 'register' && (
-        <RegisterScreen
-          onDone={(d) => {
-            setDriver(d);
-            setState('tracking');
-          }}
-        />
-      )}
-      {state === 'tracking' && driver && <TrackingScreen driver={driver} />}
-    </SafeAreaView>
+    <Boundary>
+      <SafeAreaView style={s.root}>
+        <StatusBar style="light" />
+        {state === 'loading' && (
+          <View style={s.center}>
+            <Text style={s.muted}>Cargando…</Text>
+          </View>
+        )}
+        {state === 'config' && (
+          <View style={s.center}>
+            <Text style={s.error}>
+              La app no está configurada. Definí EXPO_PUBLIC_SUPABASE_URL y
+              EXPO_PUBLIC_SUPABASE_ANON_KEY y volvé a compilar.
+            </Text>
+          </View>
+        )}
+        {state === 'register' && (
+          <RegisterScreen
+            onDone={(d) => {
+              setDriver(d);
+              setState('tracking');
+            }}
+          />
+        )}
+        {state === 'tracking' && driver && <TrackingScreen driver={driver} />}
+      </SafeAreaView>
+    </Boundary>
   );
 }
 

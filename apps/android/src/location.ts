@@ -1,6 +1,7 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import { supabase } from './supabase';
+import { reportError } from './errors';
 
 export const LOCATION_TASK = 'mc-location-task';
 
@@ -53,15 +54,18 @@ async function sendPoint(loc: Location.LocationObject): Promise<void> {
       const { data: refreshed } = await supabase.auth.refreshSession();
       if (!refreshed.session) {
         lastError = 'sesión expirada';
+        reportError('send:session', error);
         return;
       }
       const retry = await supabase.rpc('report_location', params);
       if (retry.error) {
         lastError = retry.error.message;
+        reportError('send:retry', retry.error);
         return;
       }
     } else {
       lastError = error.message;
+      reportError('send:rpc', error);
       return;
     }
   }
@@ -79,6 +83,7 @@ async function sendPoint(loc: Location.LocationObject): Promise<void> {
 TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
   if (error) {
     lastError = error.message;
+    reportError('task:error', error);
     return;
   }
   const locations = (data as { locations?: Location.LocationObject[] })?.locations;
@@ -88,6 +93,7 @@ TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
       await sendPoint(loc);
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err);
+      reportError('task:sendPoint', err);
     }
   }
 });
