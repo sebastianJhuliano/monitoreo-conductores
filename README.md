@@ -77,7 +77,8 @@ MonitoreoConductores/
 │   └── migrations/
 │       ├── 0001_init.sql      → tablas, RPCs, RLS, realtime, trigger primer-admin
 │       ├── 0002_app_errors.sql → tabla app_errors + RPC report_error (diagnóstico de crashes)
-│       └── 0003_app_errors_lectura_abierta.sql → el admin puede leer app_errors desde afuera
+│       ├── 0003_app_errors_lectura_abierta.sql → el admin puede leer app_errors desde afuera
+│       └── 0004_eliminar_conductor.sql → RPC delete_driver (borra conductor + historial + cuenta) + RLS
 └── .github/workflows/
     ├── build-apk.yml          → compila el APK (tag v* o manual) y crea Release
     └── deploy-pages.yml       → publica el panel en GitHub Pages (push a master)
@@ -228,7 +229,7 @@ Los `.env` locales están en `.gitignore`. En la build de CI el `.env` se genera
 
 ### Supabase (una sola vez)
 1. Crear proyecto free en supabase.com. Anotar Project URL y anon key.
-2. SQL Editor → pegar `0001_init.sql` → Run. Luego `0002_app_errors.sql` → Run. Luego `0003_app_errors_lectura_abierta.sql` → Run.
+2. SQL Editor → pegar `0001_init.sql` → Run. Luego `0002_app_errors.sql` → Run. Luego `0003_app_errors_lectura_abierta.sql` → Run. Luego `0004_eliminar_conductor.sql` → Run.
 3. Authentication → Providers → Email: desactivar "Confirm email". Activar **Anonymous** sign-ins.
 4. Dashboard → Realtime: confirmar que `driver_status` y `locations` están publicadas.
 

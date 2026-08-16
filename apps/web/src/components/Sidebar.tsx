@@ -9,6 +9,7 @@ interface SidebarProps {
   selectedId: string | null;
   now: number;
   onSelect: (id: string) => void;
+  onDelete?: (id: string, name: string) => void;
   onSignOut?: () => void;
 }
 
@@ -29,6 +30,7 @@ export default function Sidebar({
   selectedId,
   now,
   onSelect,
+  onDelete,
   onSignOut,
 }: SidebarProps) {
   const [query, setQuery] = useState('');
@@ -112,6 +114,18 @@ export default function Sidebar({
                 </span>
               </span>
               <span className={`mc-badge ${st.cls}`}>{st.label}</span>
+              {onDelete && !isDemo && (
+                <button
+                  className="mc-del"
+                  title="Eliminar conductor"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(d.id, d.name);
+                  }}
+                >
+                  ✕
+                </button>
+              )}
             </button>
           );
         })}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { LocationPoint } from '../types';
 import { useLiveDrivers, fetchTrajectory } from '../hooks/useLiveDrivers';
+import { supabase, isConfigured } from '../lib/supabase';
 import MapView from './MapView';
 import Sidebar from './Sidebar';
 
@@ -25,6 +26,17 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
     fetchTrajectory(id).then(setTrajectory);
   }, []);
 
+  const removeDriver = useCallback(async (id: string, name: string) => {
+    if (!isConfigured || !supabase) return;
+    if (!window.confirm(`¿Eliminar a ${name}? Se borra su historial y ya no podrá transmitir.`)) {
+      return;
+    }
+    const { error } = await supabase.rpc('delete_driver', { p_id: id });
+    if (error) {
+      window.alert('No se pudo eliminar: ' + error.message);
+    }
+  }, []);
+
   return (
     <div className="mc-layout">
       <Sidebar
@@ -34,6 +46,7 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
         selectedId={selectedId}
         now={now}
         onSelect={select}
+        onDelete={removeDriver}
         onSignOut={onSignOut}
       />
       <main className="mc-main">

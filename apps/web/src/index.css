@@ -217,6 +217,23 @@ body {
   flex: none;
 }
 
+.mc-del {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 13px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  flex: none;
+}
+
+.mc-del:hover {
+  background: var(--danger, #7f1d1d);
+  color: #fecaca;
+}
+
 .st-none {
   background: var(--gray);
   color: #fff;
