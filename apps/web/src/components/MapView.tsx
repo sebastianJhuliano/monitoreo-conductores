@@ -6,7 +6,7 @@ import type { LiveDriver, LocationPoint } from '../types';
 import { waLink, timeAgo } from '../lib/wa';
 
 const TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-const CENTER: [number, number] = [-34.6037, -58.3816];
+const CENTER: [number, number] = [-27.3556, -55.837]; // Cambyretá, Encarnación, Paraguay
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => {

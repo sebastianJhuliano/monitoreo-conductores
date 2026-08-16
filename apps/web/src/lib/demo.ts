@@ -35,7 +35,7 @@ interface DemoUnit {
   history: LocationPoint[];
 }
 
-const CENTER = { lat: -34.6037, lng: -58.3816 }; // Buenos Aires
+const CENTER = { lat: -27.3556, lng: -55.837 }; // Cambyretá, Encarnación, Paraguay
 const HOME = [1, 2, 5, 8]; // indices que arrancan "parados"
 
 function startUnits(): DemoUnit[] {
