@@ -79,7 +79,8 @@ MonitoreoConductores/
 │       ├── 0001_init.sql      → tablas, RPCs, RLS, realtime, trigger primer-admin
 │       ├── 0002_app_errors.sql → tabla app_errors + RPC report_error (diagnóstico de crashes)
 │       ├── 0003_app_errors_lectura_abierta.sql → el admin puede leer app_errors desde afuera
-│       └── 0004_eliminar_conductor.sql → RPC delete_driver (borra conductor + historial + cuenta) + RLS
+│       ├── 0004_eliminar_conductor.sql → RPC delete_driver (borra conductor + historial + cuenta) + RLS
+│       └── 0005_precision.sql → report_location v2 (filtros de precisión) + has_fix + clear_trajectory
 └── .github/workflows/
     ├── build-apk.yml          → compila el APK (tag v* o manual) y crea Release
     └── deploy-pages.yml       → publica el panel en GitHub Pages (push a master)
@@ -104,10 +105,12 @@ Proyecto actual: `https://gtgtefcifzbbdqxbzghl.supabase.co` (free tier).
 
 | RPC | Qué hace | Quién la llama |
 |---|---|---|
-| `report_location(p_lat, p_lng, ...)` | Inserta en `locations` + hace UPSERT en `driver_status` de forma atómica. `is_moving` = velocidad > 2 m/s | La tarea de fondo de la app (con `fetch` plano + token) |
-| `reclaim_driver(p_id, p_phone)` | Re-vincula un conductor ya registrado a una sesión nueva (reinstaló la app o expiró su sesión). Solo si coincide el teléfono | La app al abrir, si perdió la sesión |
+| `report_location(p_lat, p_lng, p_accuracy, p_speed, p_heading, p_has_fix, p_update)` | Inserta en `locations` + hace UPSERT en `driver_status` de forma atómica. v2 (0005): `p_has_fix=false` = solo latido (sin GPS, no mueve el marcador); `p_update=false` = refresca estado sin punto nuevo (jitter); guarda de saltos >1.2 km en <45 s (descarta el punto, no mueve nada). `is_moving` = velocidad > 2 m/s | La tarea de fondo de la app (con `fetch` plano + token) |
+| `reclaim_driver(p_id, p_phone)` | Re-vincula un conductor ya registrado a una sesión nueva (reinstaló la app o expiró su sesión). Solo si coincide el teléfono. Si falla con "no autorizado", el conductor fue **eliminado** → la app (v1.6+) muestra "Registrarme de nuevo" | La app al abrir, si perdió la sesión |
 | `is_admin()` | ¿El usuario logueado es admin? | Políticas RLS |
 | `report_error(p_where, p_message, p_stack)` | Inserta un error JS en `app_errors` | La app cuando algo falla |
+| `delete_driver(p_id)` | Borra conductor + historial + su cuenta `auth.users` (admin) | Panel web (botón ✕) |
+| `clear_trajectory(p_driver_id)` | Borra el historial de puntos de un conductor (admin) | Panel web (botón "Limpiar" en el popup) |
 
 ### Seguridad (RLS)
 
@@ -125,8 +128,19 @@ Proyecto actual: `https://gtgtefcifzbbdqxbzghl.supabase.co` (free tier).
 ```sql
 alter publication supabase_realtime add table public.driver_status;
 alter publication supabase_realtime add table public.locations;
+alter publication supabase_realtime add table public.drivers;   -- IMPORTANTE (0001 v2): sin esto, borrar/registrar conductores no se refleja al instante en el panel
 ```
 El panel se suscribe a `driver_status` y `drivers`; `locations` se suma a la publicación por si se quiere realtime de trayectorias.
+
+### Precisión de ubicación (v1.7+, migración 0005)
+
+**El problema real:** el GPS del celular a veces entrega posiciones "fantasma" (por antenas/WiFi cuando no hay buena señal): pueden aparecer a kilómetros del lugar real (en el centro, en el río, etc.). Eso dibujaba trayectorias en X.
+
+**Defensa en 3 capas:**
+
+1. **App** (`location.ts`): solo mueve el marcador si `accuracy <= 100 m`; si el punto está a menos de 25 m del anterior no guarda punto nuevo (filtra el ruido de estar quieto); si no hay señal buena, envía un **latido** (`p_has_fix=false`) que mantiene al conductor "online" sin moverlo.
+2. **Servidor** (`report_location` v2): guarda anti-saltos — si un punto está a >1.2 km del último y llegó en <45 s, se descarta (ningún vehículo real va a esa velocidad en la ciudad).
+3. **Panel** (`MapView`): al dibujar la trayectoria, no une con línea los saltos >1.2 km (los corta en segmentos) y muestra **"Sin señal GPS"** (ámbar) cuando el conductor está online pero sin fix. Botón **"Limpiar"** en el popup: borra la trayectoria vieja (con la X fantasma) vía `clear_trajectory`.
 
 ### Auth
 
@@ -160,10 +174,10 @@ https://github.com/sebastianJhuliano/monitoreo-conductores/releases/latest/downl
 
 ### Flujo de la app
 
-1. **Registro** (`RegisterScreen`): nombre + teléfono (formato `595XXXXXXXXX` para Paraguay). La app hace **sign-in anónimo** (`signInAnonymously`) e inserta su fila en `drivers` (con `auth_user_id`). Guarda el conductor en AsyncStorage (`mc_driver`).
+1. **Permisos + Registro** (`RegisterScreen`): al abrir la primera vez pide **todo acá mismo**: ubicación precisa ("permitir todo el tiempo"), notificaciones y GPS; botón para "Permitir uso en segundo plano (batería)" (intent `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`). Luego nombre + teléfono (formato `595XXXXXXXXX` para Paraguay). La app hace **sign-in anónimo** (`signInAnonymously`) e inserta su fila en `drivers` (con `auth_user_id`). Guarda el conductor en AsyncStorage (`mc_driver`).
 2. **Al abrir** (`App.tsx`): limpia **todas las tareas de fondo registradas** (`TaskManager.unregisterAllTasksAsync`) para evitar que una tarea vieja de un cierre anterior crashee la app al reabrir; luego restaura la sesión (`ensureDriverSession`) y si expiró, la refresca o re-vincula con `reclaim_driver`.
-3. **Transmitir** (`TrackingScreen`): pide permisos (ubicación "todo el tiempo" + activar GPS), inicia el **foreground service** con la notificación permanente "Monitoreo activo".
-4. **En segundo plano** (`location.ts`): `expo-task-manager` define la tarea `mc-location-task`. Configuración: precisión **High**, cada **15 segundos / 10 metros**. Cuando Android dispara la tarea (app en primer o segundo plano), envía la posición a Supabase con **`fetch` plano** (no supabase-js).
+3. **Transmitir** (`TrackingScreen`): inicia el **foreground service** con la notificación permanente "Monitoreo activo". El botón permite **detener y volver a transmitir** las veces que quiera.
+4. **En segundo plano** (`location.ts`): `expo-task-manager` define la tarea `mc-location-task`. Configuración: precisión **Highest**, cada **15 segundos / 10 metros**. Antes de enviar filtra: `accuracy > 100 m` → latido sin mover; movimiento < 25 m → refresco sin punto. Envía con **`fetch` plano** (no supabase-js).
 5. **Estadísticas en vivo** (`TrackingScreen`): "Puntos enviados", precisión, velocidad, último error → visible para el usuario.
 
 ### ⚠️ Detalle importante: la tarea de fondo NO usa supabase-js
@@ -230,9 +244,9 @@ Los `.env` locales están en `.gitignore`. En la build de CI el `.env` se genera
 
 ### Supabase (una sola vez)
 1. Crear proyecto free en supabase.com. Anotar Project URL y anon key.
-2. SQL Editor → pegar `0001_init.sql` → Run. Luego `0002_app_errors.sql` → Run. Luego `0003_app_errors_lectura_abierta.sql` → Run. Luego `0004_eliminar_conductor.sql` → Run.
+2. SQL Editor → pegar `0001_init.sql` → Run. Luego `0002_app_errors.sql` → Run. Luego `0003_app_errors_lectura_abierta.sql` → Run. Luego `0004_eliminar_conductor.sql` → Run. Luego `0005_precision.sql` → Run.
 3. Authentication → Providers → Email: desactivar "Confirm email". Activar **Anonymous** sign-ins.
-4. Dashboard → Realtime: confirmar que `driver_status` y `locations` están publicadas.
+4. Dashboard → Realtime: confirmar que `driver_status`, `locations` y `drivers` están publicadas.
 
 ### Panel web (local)
 ```bash
@@ -276,9 +290,9 @@ En la práctica se compila en GitHub Actions (paso 6).
 - Limitación de los fabricantes: en Samsung activar **"Permitir autoinicio"** y en Xiaomi **"Inicio automático"**, si no, el sistema puede bloquear el arranque automático.
 
 ### Configuración en el celular del conductor (IMPORTANTE, sobre todo Xiaomi/Redmi)
-- Permitir ubicación **"todo el tiempo"**.
-- **Desactivar la optimización de batería** para la app (el botón "Optimización de batería" de la app abre ese ajuste).
+- La app pide **todo al registrarse**: ubicación "todo el tiempo", notificaciones y batería (botón "Permitir uso en segundo plano"). Aceptar todo.
 - En Xiaomi/Redmi: **Ajustes → Apps → Monitoreo Conductores → Otros permisos → Inicio automático: ACTIVADO**, y en Ajustes → Batería → restricción = **Sin restricciones**. Sin esto, Xiaomi "mata" la app y deja de transmitir.
+- En Samsung: **Ajustes → Aplicaciones → Monitoreo Conductores → Batería → "Permitir actividad en segundo plano"** y **"Permitir autoinicio"**.
 - **No** cerrar la app desde las apps recientes ni forzarla a detenerse.
 
 ---
@@ -296,7 +310,8 @@ En la práctica se compila en GitHub Actions (paso 6).
 ### Limitaciones honestas
 - Si el celular mata la app (Xiaomi/Samsung agresivos) el tracking se corta. El foreground service lo mitiga pero no es infalible.
 - iOS no se puede publicar sin pagar ($99/año de Apple); el tracking de fondo de verdad es solo Android.
-- Dentro de edificios la precisión GPS baja.
+- Dentro de edificios la precisión GPS baja: la app lo detecta (v1.7+), no mueve el marcador y muestra "Sin señal GPS" en el panel.
+- Si el conductor apaga el teléfono de verdad, ese tramo queda sin puntos (imposible de evitar); al prenderlo se reanuda solo (v1.5+) y la línea se corta en el panel (no une el salto).
 
 ---
 
