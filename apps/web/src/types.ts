@@ -13,6 +13,7 @@ export interface DriverStatus {
   lng: number;
   speed: number;
   is_moving: boolean;
+  has_fix?: boolean;
   updated_at: string;
 }
 

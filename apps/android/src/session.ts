@@ -55,11 +55,13 @@ export async function refreshToken(token: StoredToken): Promise<StoredToken | nu
 }
 
 export interface Point {
-  p_lat: number;
-  p_lng: number;
+  p_lat: number | null;
+  p_lng: number | null;
   p_accuracy: number | null;
   p_speed: number | null;
   p_heading: number | null;
+  p_has_fix: boolean;
+  p_update: boolean;
 }
 
 export async function reportLocation(

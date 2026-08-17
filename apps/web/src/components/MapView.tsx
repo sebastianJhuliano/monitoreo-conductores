@@ -25,6 +25,7 @@ function markerIcon(d: LiveDriver, now: number): L.DivIcon {
   const offline = d.status ? now - new Date(d.status.updated_at).getTime() > 120_000 : false;
   const cls = ['mc-marker'];
   if (offline) cls.push('mc-marker-offline');
+  else if (d.status?.has_fix === false) cls.push('mc-marker-gps');
   else if (d.status?.is_moving) cls.push('mc-marker-moving');
   return L.divIcon({
     className: 'mc-div-icon',
@@ -36,6 +37,38 @@ function markerIcon(d: LiveDriver, now: number): L.DivIcon {
     iconAnchor: [60, 14],
     popupAnchor: [0, -14],
   });
+}
+
+// Distancia en metros entre dos coordenadas (haversine).
+function distM(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const dLat = ((bLat - aLat) * Math.PI) / 180;
+  const dLng = ((bLng - aLng) * Math.PI) / 180;
+  const x =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((aLat * Math.PI) / 180) * Math.cos((bLat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return 6371000 * 2 * Math.asin(Math.sqrt(x));
+}
+
+// Divide la trayectoria en segmentos: no une con una línea los saltos
+// imposibles (> 1.2 km entre puntos consecutivos, errores de GPS viejos).
+const MAX_SEGMENT_M = 1200;
+function splitSegments(positions: [number, number][]): [number, number][][] {
+  const segments: [number, number][][] = [];
+  let cur: [number, number][] = [];
+  for (let i = 0; i < positions.length; i++) {
+    if (
+      cur.length > 0 &&
+      distM(cur[cur.length - 1][0], cur[cur.length - 1][1], positions[i][0], positions[i][1]) >
+        MAX_SEGMENT_M
+    ) {
+      if (cur.length > 1) segments.push(cur);
+      cur = [positions[i]];
+    } else {
+      cur.push(positions[i]);
+    }
+  }
+  if (cur.length > 1) segments.push(cur);
+  return segments;
 }
 
 function FitDrivers({ drivers }: { drivers: LiveDriver[] }) {
@@ -68,9 +101,17 @@ interface MapViewProps {
   onSelect: (id: string) => void;
   trajectory: LocationPoint[];
   now: number;
+  onClearTrajectory?: (id: string, name: string) => void;
 }
 
-export default function MapView({ drivers, selectedId, onSelect, trajectory, now }: MapViewProps) {
+export default function MapView({
+  drivers,
+  selectedId,
+  onSelect,
+  trajectory,
+  now,
+  onClearTrajectory,
+}: MapViewProps) {
   const visible = useMemo(() => drivers.filter((d) => !d.is_admin), [drivers]);
   const icons = useMemo(
     () => new Map(visible.map((d) => [d.id, markerIcon(d, now)])),
@@ -84,6 +125,7 @@ export default function MapView({ drivers, selectedId, onSelect, trajectory, now
     () => trajectory.map((p) => [p.lat, p.lng] as [number, number]),
     [trajectory],
   );
+  const segments = useMemo(() => splitSegments(positions), [positions]);
 
   return (
     <MapContainer center={CENTER} zoom={13} className="mc-map">
@@ -93,12 +135,13 @@ export default function MapView({ drivers, selectedId, onSelect, trajectory, now
       />
       <FitDrivers drivers={visible} />
       <FlyTo target={flyTarget} />
-      {trajectory.length > 1 && selected && (
+      {segments.map((seg, i) => (
         <Polyline
-          positions={positions}
-          pathOptions={{ color: selected.color, weight: 4, opacity: 0.85 }}
+          key={i}
+          positions={seg}
+          pathOptions={{ color: selected?.color ?? '#3b82f6', weight: 4, opacity: 0.85 }}
         />
-      )}
+      ))}
       {visible.map((d) => {
         if (!d.status) return null;
         const s = d.status;
@@ -113,8 +156,17 @@ export default function MapView({ drivers, selectedId, onSelect, trajectory, now
               <div className="mc-popup">
                 <div className="mc-popup-name">{d.name}</div>
                 <div className="mc-popup-meta">
-                  <span className={`mc-dot-sm ${s.is_moving ? 'mc-dot-moving' : 'mc-dot-stopped'}`} />
-                  {s.is_moving ? 'En movimiento' : 'Detenido'}
+                  {s.has_fix === false ? (
+                    <>
+                      <span className="mc-dot-sm mc-dot-gps" />
+                      Sin señal GPS
+                    </>
+                  ) : (
+                    <>
+                      <span className={`mc-dot-sm ${s.is_moving ? 'mc-dot-moving' : 'mc-dot-stopped'}`} />
+                      {s.is_moving ? 'En movimiento' : 'Detenido'}
+                    </>
+                  )}
                 </div>
                 <div className="mc-popup-meta">Tel: {d.phone || '—'}</div>
                 <div className="mc-popup-meta">Actualizado {timeAgo(s.updated_at)}</div>
@@ -130,6 +182,11 @@ export default function MapView({ drivers, selectedId, onSelect, trajectory, now
                   <button className="mc-btn" onClick={() => onSelect(d.id)}>
                     Trayectoria
                   </button>
+                  {onClearTrajectory && (
+                    <button className="mc-btn" onClick={() => onClearTrajectory(d.id, d.name)}>
+                      Limpiar
+                    </button>
+                  )}
                 </div>
               </div>
             </Popup>

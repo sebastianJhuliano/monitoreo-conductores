@@ -18,6 +18,9 @@ function driverState(d: LiveDriver, now: number): { label: string; cls: string }
   if (now - new Date(d.status.updated_at).getTime() > 120_000) {
     return { label: 'Offline', cls: 'st-offline' };
   }
+  if (d.status.has_fix === false) {
+    return { label: 'Sin señal GPS', cls: 'st-gps' };
+  }
   return d.status.is_moving
     ? { label: 'En movimiento', cls: 'st-moving' }
     : { label: 'Detenido', cls: 'st-stopped' };

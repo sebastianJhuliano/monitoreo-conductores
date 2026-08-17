@@ -254,6 +254,11 @@ body {
   color: #3a2400;
 }
 
+.st-gps {
+  background: #b45309;
+  color: #fff;
+}
+
 .mc-signout {
   background: transparent;
   border: 1px solid var(--border);
@@ -439,6 +444,11 @@ body {
   opacity: 0.7;
 }
 
+.mc-marker-gps .mc-marker-dot {
+  background: #f59e0b;
+  animation: mc-pulse 1.4s ease-out infinite;
+}
+
 .mc-marker-offline .mc-marker-label {
   background: rgba(100, 116, 139, 0.9);
 }
@@ -484,6 +494,10 @@ body {
 
 .mc-dot-stopped {
   background: var(--amber);
+}
+
+.mc-dot-gps {
+  background: #f59e0b;
 }
 
 /* ---------- Scrollbar ---------- */

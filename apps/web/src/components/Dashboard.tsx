@@ -37,6 +37,19 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
     }
   }, []);
 
+  const clearTrajectory = useCallback(async (id: string, name: string) => {
+    if (!isConfigured || !supabase) return;
+    if (!window.confirm(`¿Borrar la trayectoria de ${name}? Los puntos nuevos seguirán apareciendo.`)) {
+      return;
+    }
+    const { error } = await supabase.rpc('clear_trajectory', { p_driver_id: id });
+    if (error) {
+      window.alert('No se pudo limpiar: ' + error.message);
+      return;
+    }
+    if (selectedId === id) setTrajectory([]);
+  }, [selectedId]);
+
   return (
     <div className="mc-layout">
       <Sidebar
@@ -56,6 +69,7 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
           onSelect={select}
           trajectory={trajectory}
           now={now}
+          onClearTrajectory={clearTrajectory}
         />
       </main>
     </div>

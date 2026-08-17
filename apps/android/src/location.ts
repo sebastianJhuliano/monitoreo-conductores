@@ -1,10 +1,16 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
-import { loadToken, refreshToken, reportLocation, saveToken } from './session';
+import { loadToken, refreshToken, reportLocation, saveToken, type Point } from './session';
 import { clearStoredDriver } from './storage';
 import { reportError } from './errors';
 
 export const LOCATION_TASK = 'mc-location-task';
+
+// Precisión máxima aceptada para mover el marcador (radio de error del GPS).
+export const MAX_ACCURACY_M = 100;
+// Movimiento mínimo para guardar un punto nuevo (filtra el "ruido" del GPS
+// cuando el conductor está quieto: sin esto, parado parece que camina).
+export const MIN_MOVE_M = 25;
 
 export interface LastFix {
   lat: number;
@@ -23,9 +29,20 @@ export interface TrackingStats {
 let lastFix: LastFix | null = null;
 let sentCount = 0;
 let lastError: string | null = null;
+// Último punto REAL enviado: sirve para no insertar puntos por jitter.
+let lastSent: { lat: number; lng: number } | null = null;
 
 export function getStats(): TrackingStats {
   return { lastFix, sentCount, lastError };
+}
+
+function distM(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const dLat = ((bLat - aLat) * Math.PI) / 180;
+  const dLng = ((bLng - aLng) * Math.PI) / 180;
+  const x =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((aLat * Math.PI) / 180) * Math.cos((bLat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return 6371000 * 2 * Math.asin(Math.sqrt(x));
 }
 
 async function sendPoint(loc: Location.LocationObject): Promise<void> {
@@ -34,12 +51,30 @@ async function sendPoint(loc: Location.LocationObject): Promise<void> {
     lastError = 'sesión no disponible';
     return;
   }
-  const params = {
-    p_lat: loc.coords.latitude,
-    p_lng: loc.coords.longitude,
-    p_accuracy: loc.coords.accuracy,
+  const acc = loc.coords.accuracy ?? null;
+  const lat = loc.coords.latitude;
+  const lng = loc.coords.longitude;
+
+  let hasFix = true;
+  let update = true;
+  if (acc !== null && acc > MAX_ACCURACY_M) {
+    // GPS malo (antenas/WiFi, error de cientos de metros): no mover el
+    // marcador, solo avisar que seguimos conectados.
+    hasFix = false;
+    update = false;
+  } else if (lastSent && distM(lastSent.lat, lastSent.lng, lat, lng) < MIN_MOVE_M) {
+    // Ruido del GPS estando quieto: refrescar estado sin punto nuevo.
+    update = false;
+  }
+
+  const params: Point = {
+    p_lat: lat,
+    p_lng: lng,
+    p_accuracy: acc,
     p_speed: loc.coords.speed,
     p_heading: loc.coords.heading,
+    p_has_fix: hasFix,
+    p_update: update,
   };
   let res = await reportLocation(token, params);
   if (!res.ok && /401|jwt|expired|invalid|PGRST301/i.test(res.err)) {
@@ -70,12 +105,15 @@ async function sendPoint(loc: Location.LocationObject): Promise<void> {
     return;
   }
   lastFix = {
-    lat: loc.coords.latitude,
-    lng: loc.coords.longitude,
-    accuracy: loc.coords.accuracy,
+    lat,
+    lng,
+    accuracy: acc,
     speed: loc.coords.speed,
     at: Date.now(),
   };
+  if (hasFix && update) {
+    lastSent = { lat, lng };
+  }
   sentCount += 1;
   lastError = null;
 }
@@ -100,7 +138,7 @@ TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
 
 export async function startTracking(): Promise<void> {
   await Location.startLocationUpdatesAsync(LOCATION_TASK, {
-    accuracy: Location.Accuracy.High,
+    accuracy: Location.Accuracy.Highest,
     distanceInterval: 10,
     timeInterval: 15_000,
     pausesUpdatesAutomatically: false,
