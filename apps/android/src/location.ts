@@ -76,8 +76,10 @@ async function sendPoint(loc: Location.LocationObject): Promise<void> {
   } else if (lastSent) {
     const d = distM(lastSent.lat, lastSent.lng, lat, lng);
     const dt = (Date.now() - lastSentAt) / 1000;
-    if (d < MIN_MOVE_M) {
-      // Ruido del GPS estando quieto: refrescar estado sin punto nuevo.
+    if (d < MIN_MOVE_M || (acc !== null && d < acc)) {
+      // Ruido del GPS: movimiento menor al mínimo o menor al radio de error
+      // del GPS (estando quieto "camina" 25-100 m). Refrescar estado sin
+      // punto nuevo: estando parado no se deben sumar km.
       update = false;
     } else if (dt > 0 && d / dt > MAX_SPEED_MPS) {
       // Salto imposible: demasiada distancia para el tiempo transcurrido

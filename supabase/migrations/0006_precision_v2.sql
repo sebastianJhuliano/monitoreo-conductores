@@ -13,6 +13,9 @@
 --      velocidad. El conductor queda online pero no se mueve.
 --   3) is_moving se calcula con la velocidad implícita cuando el GPS
 --      no reporta speed (algunos celulares no lo dan).
+--   4) Movimiento menor al radio de error del GPS (dist < accuracy):
+--      es ruido estando parado (el GPS "camina" 25-100 m) -> no se
+--      inserta punto ni se suman km. CRÍTICO para el pago por trayecto.
 -- =============================================================
 
 create or replace function public.report_location(
@@ -83,8 +86,17 @@ begin
     v_dt := extract(epoch from (now() - v_last_at));
     if v_dt > 0 then
       v_implied := v_dist / v_dt;
+      -- Movimiento menor al radio de error del GPS: ruido estando parado
+      -- (el GPS "camina" 25-100 m sin moverse de verdad). No insertar
+      -- punto ni sumar km: el pago es por trayecto real.
+      if p_update and p_accuracy is not null and v_dist < p_accuracy then
+        update public.driver_status
+        set speed = 0, is_moving = false, has_fix = true, updated_at = now()
+        where driver_id = v_driver_id;
+        return v_driver_id;
+      end if;
+      -- Salto imposible: refrescar online pero no mover nada.
       if v_implied > 40 then
-        -- Salto imposible: refrescar online pero no mover nada.
         update public.driver_status
         set speed = 0, is_moving = false, has_fix = true, updated_at = now()
         where driver_id = v_driver_id;
