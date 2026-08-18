@@ -49,26 +49,68 @@ function distM(aLat: number, aLng: number, bLat: number, bLng: number): number {
   return 6371000 * 2 * Math.asin(Math.sqrt(x));
 }
 
-// Divide la trayectoria en segmentos: no une con una línea los saltos
-// imposibles (> 1.2 km entre puntos consecutivos, errores de GPS viejos).
+// Divide la trayectoria en segmentos y calcula los km reales:
+//  - No une con línea los saltos imposibles (> 1.2 km entre puntos
+//    consecutivos, errores de GPS viejos).
+//  - No une con línea si la velocidad implícita es imposible (> 55 m/s).
+//  - Quita picos aislados: un punto lejos de sus DOS vecinos que están
+//    cerca entre sí es un error de GPS, no un desvío real.
 const MAX_SEGMENT_M = 1200;
-function splitSegments(positions: [number, number][]): [number, number][][] {
+const MAX_TRAJ_SPEED_MPS = 55;
+const SPIKE_M = 500;
+function cleanTrajectory(points: LocationPoint[]): {
+  segments: [number, number][][];
+  km: number;
+} {
+  const pts = points.map((p) => ({
+    lat: p.lat,
+    lng: p.lng,
+    ts: new Date(p.created_at).getTime(),
+  }));
+
+  const kept: typeof pts = [];
+  for (let i = 0; i < pts.length; i++) {
+    if (i === 0 || i === pts.length - 1) {
+      kept.push(pts[i]);
+      continue;
+    }
+    const a = pts[i - 1];
+    const b = pts[i];
+    const c = pts[i + 1];
+    const ab = distM(a.lat, a.lng, b.lat, b.lng);
+    const bc = distM(b.lat, b.lng, c.lat, c.lng);
+    const ac = distM(a.lat, a.lng, c.lat, c.lng);
+    if (ab > SPIKE_M && bc > SPIKE_M && ac < MAX_SEGMENT_M) continue;
+    kept.push(b);
+  }
+
   const segments: [number, number][][] = [];
   let cur: [number, number][] = [];
-  for (let i = 0; i < positions.length; i++) {
-    if (
-      cur.length > 0 &&
-      distM(cur[cur.length - 1][0], cur[cur.length - 1][1], positions[i][0], positions[i][1]) >
-        MAX_SEGMENT_M
-    ) {
-      if (cur.length > 1) segments.push(cur);
-      cur = [positions[i]];
-    } else {
-      cur.push(positions[i]);
+  let prev: { lat: number; lng: number; ts: number } | null = null;
+  let km = 0;
+  for (const p of kept) {
+    if (cur.length === 0) {
+      cur.push([p.lat, p.lng]);
+      prev = p;
+      continue;
     }
+    const d = distM(prev!.lat, prev!.lng, p.lat, p.lng);
+    const dt = (p.ts - prev!.ts) / 1000;
+    if (d > MAX_SEGMENT_M || (dt > 0 && d / dt > MAX_TRAJ_SPEED_MPS)) {
+      if (cur.length > 1) segments.push(cur);
+      cur = [[p.lat, p.lng]];
+    } else {
+      km += d;
+      cur.push([p.lat, p.lng]);
+    }
+    prev = p;
   }
   if (cur.length > 1) segments.push(cur);
-  return segments;
+  return { segments, km };
+}
+
+function fmtKm(km: number): string {
+  return km >= 1000 ? `${(km / 1000).toFixed(1)} km` : `${Math.round(km)} m`;
 }
 
 function FitDrivers({ drivers }: { drivers: LiveDriver[] }) {
@@ -121,11 +163,7 @@ export default function MapView({
   const flyTarget: [number, number] | null = selected?.status
     ? [selected.status.lat, selected.status.lng]
     : null;
-  const positions = useMemo(
-    () => trajectory.map((p) => [p.lat, p.lng] as [number, number]),
-    [trajectory],
-  );
-  const segments = useMemo(() => splitSegments(positions), [positions]);
+  const { segments, km } = useMemo(() => cleanTrajectory(trajectory), [trajectory]);
 
   return (
     <MapContainer center={CENTER} zoom={13} className="mc-map">
@@ -170,6 +208,9 @@ export default function MapView({
                 </div>
                 <div className="mc-popup-meta">Tel: {formatPhone(d.phone) || '—'}</div>
                 <div className="mc-popup-meta">Actualizado {timeAgo(s.updated_at)}</div>
+                {selectedId === d.id && km > 0 && (
+                  <div className="mc-popup-meta">Recorrido: {fmtKm(km)}</div>
+                )}
                 <div className="mc-popup-actions">
                   <a
                     className="mc-btn mc-btn-wa"

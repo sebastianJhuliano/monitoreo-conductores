@@ -11,6 +11,9 @@ export const MAX_ACCURACY_M = 100;
 // Movimiento mínimo para guardar un punto nuevo (filtra el "ruido" del GPS
 // cuando el conductor está quieto: sin esto, parado parece que camina).
 export const MIN_MOVE_M = 25;
+// Velocidad imposible en ciudad (>40 m/s = 144 km/h): el GPS entregó una
+// posición "fantasma" (antena/WiFi), no un auto real. Se descarta sin mover.
+export const MAX_SPEED_MPS = 40;
 
 export interface LastFix {
   lat: number;
@@ -31,6 +34,9 @@ let sentCount = 0;
 let lastError: string | null = null;
 // Último punto REAL enviado: sirve para no insertar puntos por jitter.
 let lastSent: { lat: number; lng: number } | null = null;
+// Momento del último punto real enviado: sirve para detectar saltos por
+// velocidad implícita (distancia / tiempo) aunque el GPS no reporte speed.
+let lastSentAt = 0;
 
 export function getStats(): TrackingStats {
   return { lastFix, sentCount, lastError };
@@ -52,6 +58,7 @@ async function sendPoint(loc: Location.LocationObject): Promise<void> {
     return;
   }
   const acc = loc.coords.accuracy ?? null;
+  const speed = loc.coords.speed ?? null;
   const lat = loc.coords.latitude;
   const lng = loc.coords.longitude;
 
@@ -62,9 +69,21 @@ async function sendPoint(loc: Location.LocationObject): Promise<void> {
     // marcador, solo avisar que seguimos conectados.
     hasFix = false;
     update = false;
-  } else if (lastSent && distM(lastSent.lat, lastSent.lng, lat, lng) < MIN_MOVE_M) {
-    // Ruido del GPS estando quieto: refrescar estado sin punto nuevo.
+  } else if (speed !== null && speed > MAX_SPEED_MPS) {
+    // Velocidad reportada por el dispositivo absurda: es un error de GPS,
+    // no un auto real. Mantener online sin mover el marcador.
     update = false;
+  } else if (lastSent) {
+    const d = distM(lastSent.lat, lastSent.lng, lat, lng);
+    const dt = (Date.now() - lastSentAt) / 1000;
+    if (d < MIN_MOVE_M) {
+      // Ruido del GPS estando quieto: refrescar estado sin punto nuevo.
+      update = false;
+    } else if (dt > 0 && d / dt > MAX_SPEED_MPS) {
+      // Salto imposible: demasiada distancia para el tiempo transcurrido
+      // (aunque el GPS diga que la precisión es buena). No mover.
+      update = false;
+    }
   }
 
   const params: Point = {
@@ -113,6 +132,7 @@ async function sendPoint(loc: Location.LocationObject): Promise<void> {
   };
   if (hasFix && update) {
     lastSent = { lat, lng };
+    lastSentAt = Date.now();
   }
   sentCount += 1;
   lastError = null;
