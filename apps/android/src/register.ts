@@ -1,6 +1,7 @@
 import { getSupabase } from './supabase';
 import { getStoredDriver, setStoredDriver, clearStoredDriver, StoredDriver } from './storage';
 import { saveToken } from './session';
+import { toInternational } from './phone';
 
 async function persistSession(): Promise<void> {
   const supabase = getSupabase();
@@ -23,9 +24,9 @@ async function persistSession(): Promise<void> {
 export async function signInDriver(name: string, phone: string): Promise<StoredDriver> {
   const supabase = getSupabase();
   if (!supabase) throw new Error('Aplicación sin configurar');
-  const digits = phone.replace(/\D/g, '');
-  if (digits.length < 8) {
-    throw new Error('El número debe incluir el código de país. Ej: 54 11 2345 6789 → 541123456789');
+  const intl = toInternational(phone);
+  if (!intl) {
+    throw new Error('El número no es válido. Escribí tu celular como lo usás: 0982 362 830');
   }
 
   const { data: anon, error: ae } = await supabase.auth.signInAnonymously();
@@ -35,7 +36,7 @@ export async function signInDriver(name: string, phone: string): Promise<StoredD
 
   const { data: row, error: de } = await supabase
     .from('drivers')
-    .insert({ auth_user_id: user.id, name: name.trim(), phone: digits })
+    .insert({ auth_user_id: user.id, name: name.trim(), phone: intl })
     .select('id, name, phone')
     .single();
 
@@ -47,7 +48,7 @@ export async function signInDriver(name: string, phone: string): Promise<StoredD
   const driver: StoredDriver = {
     id: (row as { id: string }).id,
     name: name.trim(),
-    phone: digits,
+    phone: intl,
   };
   await persistSession();
   await setStoredDriver(driver);

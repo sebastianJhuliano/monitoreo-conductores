@@ -15,6 +15,7 @@ import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { signInDriver } from '../register';
+import { formatPhoneInput, toInternational } from '../phone';
 import type { StoredDriver } from '../storage';
 
 interface Perms {
@@ -99,6 +100,12 @@ export default function RegisterScreen({ onDone }: { onDone: (d: StoredDriver) =
 
   const submit = async () => {
     if (!name.trim()) return Alert.alert('Falta el nombre', 'Ingresá tu nombre.');
+    if (!toInternational(phone)) {
+      return Alert.alert(
+        'Número no válido',
+        'Escribí tu celular como lo usás en WhatsApp, por ejemplo: 0982 362 830',
+      );
+    }
     if (busy) return;
     setBusy(true);
     try {
@@ -181,12 +188,15 @@ export default function RegisterScreen({ onDone }: { onDone: (d: StoredDriver) =
           <TextInput
             style={s.input}
             value={phone}
-            onChangeText={setPhone}
-            placeholder="Ej: 595971123456"
+            onChangeText={(t) => setPhone(formatPhoneInput(t))}
+            placeholder="Ej: 0982 362 830"
             placeholderTextColor="#64748b"
             keyboardType="phone-pad"
+            maxLength={14}
           />
-          <Text style={s.hint}>Incluí el código de país: 595 + 971 123 456 → 595971123456</Text>
+          <Text style={s.hint}>
+            Escribí tu número tal cual lo usás en WhatsApp, sin el código de país.
+          </Text>
 
           <TouchableOpacity style={[s.btn, busy && s.btnDisabled]} onPress={submit} disabled={busy}>
             <Text style={s.btnText}>{busy ? 'Registrando…' : 'Registrarme y continuar'}</Text>

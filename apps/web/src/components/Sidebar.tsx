@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { LiveDriver } from '../types';
-import { timeAgo } from '../lib/wa';
+import { timeAgo, formatPhone } from '../lib/wa';
 
 interface SidebarProps {
   drivers: LiveDriver[];
@@ -113,7 +113,8 @@ export default function Sidebar({
               <span className="mc-item-info">
                 <span className="mc-item-name">{d.name}</span>
                 <span className="mc-item-meta">
-                  {d.phone || 'Sin teléfono'} · {timeAgo(d.status?.updated_at ?? null)}
+                  {formatPhone(d.phone || '') || 'Sin teléfono'} ·{' '}
+                  {timeAgo(d.status?.updated_at ?? null)}
                 </span>
               </span>
               <span className={`mc-badge ${st.cls}`}>{st.label}</span>

@@ -96,7 +96,7 @@ Proyecto actual: `https://gtgtefcifzbbdqxbzghl.supabase.co` (free tier).
 
 | Tabla | Para qué |
 |---|---|
-| `drivers` | Usuarios/conductores. `auth_user_id` vincula con `auth.users`. `is_admin` marca al admin. `phone` en formato internacional `595XXXXXXXXX` |
+| `drivers` | Usuarios/conductores. `auth_user_id` vincula con `auth.users`. `is_admin` marca al admin. `phone` se guarda en formato internacional `595XXXXXXXXX` (la app lo convierte sola desde `0982 362 830`) |
 | `locations` | Historial de cada posición (lat, lng, accuracy, speed, heading, created_at) → trayectorias |
 | `driver_status` | Última posición por conductor (1 fila por conductor) → mapa en vivo |
 | `app_errors` | Registro de errores JS que manda la app (diagnóstico de crashes) |
@@ -174,7 +174,7 @@ https://github.com/sebastianJhuliano/monitoreo-conductores/releases/latest/downl
 
 ### Flujo de la app
 
-1. **Permisos + Registro** (`RegisterScreen`): al abrir la primera vez pide **todo acá mismo**: ubicación precisa ("permitir todo el tiempo"), notificaciones y GPS; botón para "Permitir uso en segundo plano (batería)" (intent `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`). Luego nombre + teléfono (formato `595XXXXXXXXX` para Paraguay). La app hace **sign-in anónimo** (`signInAnonymously`) e inserta su fila en `drivers` (con `auth_user_id`). Guarda el conductor en AsyncStorage (`mc_driver`).
+1. **Permisos + Registro** (`RegisterScreen`): al abrir la primera vez pide **todo acá mismo**: ubicación precisa ("permitir todo el tiempo"), notificaciones y GPS; botón para "Permitir uso en segundo plano (batería)" (intent `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`). Luego nombre + teléfono: el conductor escribe su número **como lo usa** (`0982 362 830`, con espaciado automático mientras escribe) y la app lo convierte sola a `595982362830` (`src/phone.ts`). La app hace **sign-in anónimo** (`signInAnonymously`) e inserta su fila en `drivers` (con `auth_user_id`). Guarda el conductor en AsyncStorage (`mc_driver`).
 2. **Al abrir** (`App.tsx`): limpia **todas las tareas de fondo registradas** (`TaskManager.unregisterAllTasksAsync`) para evitar que una tarea vieja de un cierre anterior crashee la app al reabrir; luego restaura la sesión (`ensureDriverSession`) y si expiró, la refresca o re-vincula con `reclaim_driver`.
 3. **Transmitir** (`TrackingScreen`): inicia el **foreground service** con la notificación permanente "Monitoreo activo". El botón permite **detener y volver a transmitir** las veces que quiera.
 4. **En segundo plano** (`location.ts`): `expo-task-manager` define la tarea `mc-location-task`. Configuración: precisión **Highest**, cada **15 segundos / 10 metros**. Antes de enviar filtra: `accuracy > 100 m` → latido sin mover; movimiento < 25 m → refresco sin punto. Envía con **`fetch` plano** (no supabase-js).

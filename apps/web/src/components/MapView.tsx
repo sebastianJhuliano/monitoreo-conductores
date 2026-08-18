@@ -3,7 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { LiveDriver, LocationPoint } from '../types';
-import { waLink, timeAgo } from '../lib/wa';
+import { waLink, timeAgo, formatPhone } from '../lib/wa';
 
 const TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 const CENTER: [number, number] = [-27.3556, -55.837]; // Cambyretá, Encarnación, Paraguay
@@ -168,7 +168,7 @@ export default function MapView({
                     </>
                   )}
                 </div>
-                <div className="mc-popup-meta">Tel: {d.phone || '—'}</div>
+                <div className="mc-popup-meta">Tel: {formatPhone(d.phone) || '—'}</div>
                 <div className="mc-popup-meta">Actualizado {timeAgo(s.updated_at)}</div>
                 <div className="mc-popup-actions">
                   <a
