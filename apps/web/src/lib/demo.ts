@@ -60,6 +60,7 @@ function startUnits(): DemoUnit[] {
         lng,
         speed: moving ? 6 + (i % 4) * 2 : 0,
         is_moving: moving,
+        distance_m: 0,
         updated_at: new Date().toISOString(),
       },
       lat,
@@ -87,10 +88,11 @@ export function demoSnapshot(): LiveDriver[] {
 export function demoTick(): LiveDriver[] {
   const now = Date.now();
   for (const u of all()) {
+    let step = 0;
     if (u.status.is_moving) {
       u.heading += (Math.random() - 0.5) * 0.12;
       const speed = 5 + Math.random() * 7; // m/s aprox
-      const step = speed * 2.5; // 2.5s de tick
+      step = speed * 2.5; // 2.5s de tick
       u.lat += (Math.cos(u.heading) * step) / 111_320;
       u.lng += (Math.sin(u.heading) * step) / (111_320 * Math.cos((u.lat * Math.PI) / 180));
     }
@@ -100,6 +102,7 @@ export function demoTick(): LiveDriver[] {
       lng: u.lng,
       speed: u.status.is_moving ? 5 + Math.random() * 7 : 0,
       is_moving: u.status.is_moving,
+      distance_m: (u.status.distance_m ?? 0) + step,
       updated_at: new Date(now).toISOString(),
     };
     u.history.push({

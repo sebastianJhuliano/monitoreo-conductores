@@ -182,6 +182,14 @@ function fmtKm(km: number): string {
   return km >= 1000 ? `${(km / 1000).toFixed(1)} km` : `${Math.round(km)} m`;
 }
 
+// km total del conductor: lo acumula el SERVIDOR (distance_m) sin límite
+// de puntos (viaja un mes y el total sigue completo). Solo si el servidor
+// aún no tiene total (0), se usa el km de la ventana dibujada.
+function totalKm(s: { distance_m?: number } | null | undefined, drawnKm: number): number {
+  if (s && typeof s.distance_m === 'number' && s.distance_m > 0) return s.distance_m;
+  return drawnKm;
+}
+
 function FitDrivers({ drivers }: { drivers: LiveDriver[] }) {
   const map = useMap();
   const fitted = useRef(false);
@@ -277,8 +285,10 @@ export default function MapView({
                 </div>
                 <div className="mc-popup-meta">Tel: {formatPhone(d.phone) || '—'}</div>
                 <div className="mc-popup-meta">Actualizado {timeAgo(s.updated_at)}</div>
-                {selectedId === d.id && km > 0 && (
-                  <div className="mc-popup-meta">Recorrido: {fmtKm(km)}</div>
+                {totalKm(s, selectedId === d.id ? km : 0) > 0 && (
+                  <div className="mc-popup-meta">
+                    Recorrido total: {fmtKm(totalKm(s, selectedId === d.id ? km : 0))}
+                  </div>
                 )}
                 <div className="mc-popup-actions">
                   <a

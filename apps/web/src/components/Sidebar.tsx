@@ -26,6 +26,11 @@ function driverState(d: LiveDriver, now: number): { label: string; cls: string }
     : { label: 'Detenido', cls: 'st-stopped' };
 }
 
+// km total acumulado por el servidor (sin límite de puntos).
+function fmtKm(km: number): string {
+  return km >= 1000 ? `${(km / 1000).toFixed(1)} km` : `${Math.round(km)} m`;
+}
+
 export default function Sidebar({
   drivers,
   loading,
@@ -114,6 +119,9 @@ export default function Sidebar({
                 <span className="mc-item-name">{d.name}</span>
                 <span className="mc-item-meta">
                   {formatPhone(d.phone || '') || 'Sin teléfono'} ·{' '}
+                  {d.status && (d.status.distance_m ?? 0) > 0
+                    ? `${fmtKm(d.status.distance_m!)} · `
+                    : ''}
                   {timeAgo(d.status?.updated_at ?? null)}
                 </span>
               </span>

@@ -102,7 +102,7 @@ export function useLiveDrivers(): LiveDriversState {
   return { drivers, loading, isDemo: !isConfigured };
 }
 
-export async function fetchTrajectory(driverId: string, max = 500): Promise<LocationPoint[]> {
+export async function fetchTrajectory(driverId: string, max = 2000): Promise<LocationPoint[]> {
   if (!isConfigured || !supabase) return demoTrajectory(driverId);
   const { data, error } = await supabase
     .from('locations')
