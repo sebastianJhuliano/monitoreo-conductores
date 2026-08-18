@@ -7,6 +7,19 @@ Sistema **100% gratuito** para que un equipo de transporte coordine conductores 
 
 > Este README está escrito para que **otra IA o desarrollador entienda el proyecto completo desde cero**: arquitectura, tecnologías, estructura, y el **porqué** de cada decisión.
 
+## Estado actual (v1.8 — todo funcionando)
+
+Todo lo que el sistema hace HOY:
+
+- **Registro del conductor**: la app pide TODOS los permisos al abrir (ubicación precisa "todo el tiempo", notificaciones, GPS, batería/segundo plano vía intent nativo) y el número se escribe **como lo usa el conductor** (`0982 362 830`, espaciado automático en vivo) → se convierte solo a `595982362830` (`src/phone.ts`).
+- **Transmisión en segundo plano**: cada 15 s / 10 m con pantalla bloqueada, foreground service + notificación permanente "Monitoreo activo". Se puede detener y volver a transmitir las veces que quiera.
+- **Filtros de precisión (anti "GPS fantasma")**: `accuracy > 100 m` → no mueve el marcador (latido `p_has_fix=false`); movimiento < 25 m → no inserta puntos (jitter); guarda anti-saltos >1.2 km en <45 s en el servidor; el panel corta las líneas en saltos y muestra "Sin señal GPS" (ámbar).
+- **Reanudación al prender el celular**: si transmitía cuando se apagó, al prenderlo la app se abre sola (`BootResumeReceiver`) y retoma sin tocar nada.
+- **Panel admin**: mapa en vivo con realtime, WhatsApp directo, trayectorias, estados (En movimiento / Detenido / Sin señal GPS / Offline), eliminar conductor (✕) → el conductor ve "Registrarme de nuevo", botón "Limpiar trayectoria", modo demo sin backend, PWA.
+- **Diagnóstico**: captura de errores JS global + ErrorBoundary + cola persistente → tabla `app_errors` (lectura abierta); la app muestra su versión en pantalla.
+
+Versión actual: **1.8.0** (versionCode 9). Ver [Historial de versiones](#12-historial-de-versiones).
+
 ---
 
 ## 1) ¿De qué va el proyecto?
@@ -54,26 +67,27 @@ MonitoreoConductores/
 │   │       ├── lib/wa.ts                     → helper de link WhatsApp (wa.me)
 │   │       ├── hooks/useLiveDrivers.ts       → carga inicial + suscripción realtime + trayectorias
 │   │       ├── components/Login.tsx          → login/registro del admin (email)
-│   │       ├── components/Dashboard.tsx      → layout: mapa + sidebar
-│   │       ├── components/MapView.tsx        → mapa Leaflet, markers, popup WhatsApp/trayectoria
-│   │       ├── components/Sidebar.tsx        → lista online/offline
-│   │       └── types.ts                      → tipos Driver / DriverStatus / LiveDriver
+│   │       ├── components/Dashboard.tsx      → layout: mapa + sidebar + eliminar/limpiar trayectoria
+│   │       ├── components/MapView.tsx        → mapa Leaflet, markers (estados), popup WhatsApp/trayectoria/limpiar, líneas cortadas en saltos
+│   │       ├── components/Sidebar.tsx        → lista con estados online/offline/sin-GPS + ✕ eliminar
+│   │       └── types.ts                      → tipos Driver / DriverStatus (has_fix) / LiveDriver / LocationPoint
 │   └── android/               APP DEL CONDUCTOR (Expo / React Native)
-│       ├── app.json           → version 1.5.0, versionCode 6, package com.monitoreo.conductores
+│       ├── app.json           → version 1.8.0, versionCode 9, package com.monitoreo.conductores, permisos Android
 │       ├── App.tsx            → arranque: reanuda la transmisión si estaba activa (tras reiniciar el celular)
 │       ├── plugins/withBootResume.js  → config plugin: receptor BOOT_COMPLETED (abre la app al prender el teléfono)
 │       └── src/
 │           ├── config.ts      → lee EXPO_PUBLIC_SUPABASE_URL / _ANON_KEY (variables de entorno)
 │           ├── supabase.ts    → cliente supabase-js PEREZOSO (se crea recién al usarlo; ver nota abajo)
 │           ├── session.ts     → guarda/lee/refresca el token JWT y hace report_location con FETCH PLANO
+│           ├── phone.ts       → convierte el número local (0982 362 830) a internacional (595982362830) + máscara en vivo
 │           ├── errors.ts      → reportError() guarda el error en el dispositivo Y lo manda a Supabase
 │           ├── errorlog.ts    → cola de errores persistente en AsyncStorage (sobrevive a crashes)
-│           ├── storage.ts     → guarda el conductor en AsyncStorage (clave 'mc_driver')
+│           ├── storage.ts     → guarda el conductor (clave 'mc_driver') y el flag de tracking activo ('mc_tracking_active')
 │           ├── register.ts    → sign-in ANÓNIMO + insert en drivers + reclaim_driver + guarda token
-│           ├── location.ts    → TAREA DE FONDO (expo-task-manager) + foreground service
+│           ├── location.ts    → TAREA DE FONDO (expo-task-manager) + foreground service + filtros de precisión
 │           └── screens/
-│               ├── RegisterScreen.tsx  → formulario nombre + teléfono
-│               └── TrackingScreen.tsx  → transmitir/detener, permisos, stats, versión en pantalla, guía
+│               ├── RegisterScreen.tsx  → permisos completos al abrir + formulario nombre + teléfono con máscara
+│               └── TrackingScreen.tsx  → transmitir/detener, stats, versión en pantalla, guía, re-registro tras eliminación
 ├── supabase/
 │   └── migrations/
 │       ├── 0001_init.sql      → tablas, RPCs, RLS, realtime, trigger primer-admin
@@ -152,8 +166,10 @@ El panel se suscribe a `driver_status` y `drivers`; `locations` se suma a la pub
 ## 4) Panel web (`apps/web`)
 
 - **Login/registro** (`Login.tsx`): el primer registro queda como admin (trigger). El panel consulta `drivers` y muestra mapa solo al admin.
-- **Mapa en vivo** (`MapView.tsx`): Leaflet. **Centro por defecto: Cambyretá, Encarnación (-27.3556, -55.837)**. Cada conductor = marker con color y nombre. Popup → botón WhatsApp (`wa.me`) y "Trayectoria" (dibuja su recorrido desde `locations`).
-- **Tiempo real** (`useLiveDrivers.ts`): carga inicial (`drivers` + `driver_status`) y luego escucha `postgres_changes` en `driver_status` y `drivers` → mueve los markers al instante.
+- **Mapa en vivo** (`MapView.tsx`): Leaflet. **Centro por defecto: Cambyretá, Encarnación (-27.3556, -55.837)**. Cada conductor = marker con color y nombre (verde = moviéndose, ámbar = "Sin señal GPS", gris = offline). Popup → WhatsApp (`wa.me`, el número se muestra en formato local `0982 362 830` pero el link usa el internacional), "Trayectoria" (dibuja el recorrido desde `locations`) y "Limpiar" (borra el historial vía `clear_trajectory`).
+- **Trayectoria inteligente**: no une con línea recta los saltos >1.2 km entre puntos consecutivos (corta la línea en segmentos) → los errores de GPS viejos no dibujan "X" por la ciudad.
+- **Tiempo real** (`useLiveDrivers.ts`): carga inicial (`drivers` + `driver_status`) y luego escucha `postgres_changes` en `driver_status` y `drivers` → mueve los markers al instante (borrar/registrar conductores se refleja solo).
+- **Estados** (`Sidebar.tsx`): En movimiento / Detenido / **Sin señal GPS** (online pero sin fix) / Offline (>2 min sin actualizar). Botón ✕ para eliminar conductor (RPC `delete_driver`).
 - **Modo demo**: si no hay `.env`/variables configuradas, el panel corre con conductores simulados (`demo.ts`), útil para probar la UI sin backend.
 - **PWA**: `manifest.webmanifest` + íconos → el admin puede "Agregar a pantalla de inicio" en el celular.
 
@@ -218,9 +234,9 @@ Cuando la app pasa a segundo plano, Android ejecuta la tarea en un **contexto he
 ### Flujo de versiones (cómo se publica una nueva versión del APK)
 
 1. Hacés los cambios en el código.
-2. Actualizás `apps/android/app.json`: `version` (ej. `1.3.0`) y `versionCode` (número entero, se incrementa en cada build).
+2. Actualizás `apps/android/app.json`: `version` (ej. `1.8.0`) y `versionCode` (número entero, se incrementa en cada build; la v1.8 es la 9).
 3. `git commit` + `git push origin master` (y `main`).
-4. Creás y pusheás el tag: `git tag v1.3` + `git push origin v1.3`.
+4. Creás y pusheás el tag: `git tag v1.8` + `git push origin v1.8`.
 5. GitHub Actions compila (~10 min) y crea la Release → el link permanente ya apunta a la nueva versión.
 
 > Nota: existen dos ramas (`master` y `main`) sincronizadas; los deploys miran `master`.
@@ -289,6 +305,17 @@ En la práctica se compila en GitHub Actions (paso 6).
 - Al abrirse, si la transmisión estaba activa, la app **reanuda sola** (`startTracking`). El conductor no tiene que tocar nada.
 - Limitación de los fabricantes: en Samsung activar **"Permitir autoinicio"** y en Xiaomi **"Inicio automático"**, si no, el sistema puede bloquear el arranque automático.
 
+### Protocolo de prueba (cómo verificar que todo funciona)
+
+1. **Permisos**: al abrir la app por primera vez pide todo solo → checklist en verde.
+2. **Transmisión**: "Puntos enviados" sube cada ~15 s; el conductor aparece en el panel en <30 s.
+3. **Pantalla bloqueada**: bloquear 3 min → los puntos siguen llegando.
+4. **Precisión (caso real detectado)**: 2 celulares juntos sin moverse 5 min → ningún punto salta a km de distancia (antes sí pasaba: "aparecía en el centro / en el río"). Si el GPS no tiene señal: panel muestra **"Sin señal GPS"** y el punto queda congelado en el último lugar bueno.
+5. **Apagado real**: transmitiendo → apagar → caminar → prender → la app se abre y retoma sola (~1-2 min); la línea de trayectoria se corta en el salto (esperado).
+6. **Detener/retomar**: "Detener transmisión" → panel "Detenido"/"Offline" → "Empezar" → vuelve a fluir.
+7. **Eliminar conductor**: ✕ en el panel → desaparece al instante; la app del conductor muestra "Registrarme de nuevo" (≤15 s si está abierta, o al reabrirla).
+8. **Limpiar trayectoria**: botón "Limpiar" en el popup → desaparece la línea al instante.
+
 ### Configuración en el celular del conductor (IMPORTANTE, sobre todo Xiaomi/Redmi)
 - La app pide **todo al registrarse**: ubicación "todo el tiempo", notificaciones y batería (botón "Permitir uso en segundo plano"). Aceptar todo.
 - En Xiaomi/Redmi: **Ajustes → Apps → Monitoreo Conductores → Otros permisos → Inicio automático: ACTIVADO**, y en Ajustes → Batería → restricción = **Sin restricciones**. Sin esto, Xiaomi "mata" la app y deja de transmitir.
@@ -305,7 +332,7 @@ En la práctica se compila en GitHub Actions (paso 6).
 - Defensas ya aplicadas: cliente supabase **perezoso**, tarea de fondo con `fetch` plano, limpieza de tareas viejas al abrir, manejador global de errores JS + ErrorBoundary, cola de errores persistente, permiso de notificaciones pedido en Android 13+.
 - **Para diagnosticar**: consultar `app_errors` en Supabase (Table Editor) o vía REST (ahora es de lectura abierta). Si hay filas → error JS capturado (el `where_` y `stack` dicen dónde). Si NO hay filas → crash nativo y hay que sacar el log con `adb logcat *:E AndroidRuntime`.
 - La app muestra su **versión en pantalla** (arriba del nombre): sirve para confirmar qué APK tiene instalado el conductor.
-- **Pregunta clave que aún no está respondida**: ¿qué celular/versión de Android usa el conductor de prueba?
+- **Celular de prueba real (confirmado)**: Samsung A13, Android 13. El crash de v1.2/v1.3 se reprodujo ahí y quedó confirmado que fue el `createClient()` headless; v1.4 en adelante no volvió a crashear (`app_errors` solo contiene errores esperables: DNS sin internet y "conductor no registrado" al eliminar a alguien con la app abierta).
 
 ### Limitaciones honestas
 - Si el celular mata la app (Xiaomi/Samsung agresivos) el tracking se corta. El foreground service lo mitiga pero no es infalible.
@@ -321,3 +348,23 @@ En la práctica se compila en GitHub Actions (paso 6).
 - Alertas: conductor detenido X minutos / offline.
 - Exportar reporte del día (CSV/PDF).
 - Zonas/geofencing: avisar si un conductor sale del radio de su centro de votación.
+
+---
+
+## 12) Historial de versiones
+
+Cada versión se publica con un **tag `vX.Y`** en GitHub; el CI compila el APK (~10 min) y la Release actualiza el link permanente. El panel web se despliega solo con cada push a `master` (si cambió `apps/web`).
+
+| Versión | versionCode | Cambios |
+|---|---|---|
+| **v1.0** | 1 | MVP: registro + transmisión de fondo (supabase-js en la tarea) + panel con mapa/WhatsApp/trayectoria |
+| **v1.1** | 2 | GPS cada 15 s (menos batería en gama baja) + guía Xiaomi |
+| **v1.2** | 3 | Captura de errores: tabla `app_errors` + RPC `report_error` + manejador global JS + ErrorBoundary + limpieza de tareas viejas al abrir |
+| **v1.3** | 4 | Tarea de fondo con **fetch plano** (`session.ts`, sin supabase-js en headless) + README completo |
+| **v1.4** | 5 | **Fix del crash nativo**: cliente supabase **perezoso** (`getSupabase()`; `createClient()` tocaba AsyncStorage al cargar el bundle headless) + cola de errores persistente (`errorlog.ts`) + permiso de notificaciones Android 13 + versión en pantalla + lectura abierta de `app_errors` |
+| **v1.5** | 6 | **Reanudación al prender el celular**: flag `mc_tracking_active` + `BootResumeReceiver` (config plugin `withBootResume.js`) + guía Samsung autoinicio |
+| **v1.6** | 7 | **Re-registro tras eliminación**: si el admin borra a un conductor, la app lo detecta ("conductor no registrado" / `reclaim_driver` falla) y ofrece "Registrarme de nuevo" |
+| **v1.7** | 8 | **Precisión blindada**: permisos completos al registrarse (ubicación todo el tiempo, batería vía intent, notificaciones); filtro de puntos imprecisos (`accuracy > 100 m` → latido), filtro de jitter (< 25 m), guarda anti-saltos en el servidor (migración 0005), estado "Sin señal GPS" + botón "Limpiar trayectoria" + líneas cortadas en el panel |
+| **v1.8** | 9 | **Número tal cual**: el conductor escribe `0982 362 830` (espaciado automático) y la app lo convierte sola a `595982362830` (`src/phone.ts`); el panel muestra el número en formato local |
+
+> Nota: el historial completo de cambios (commits) está en git; esta tabla resume qué aportó cada release y **por qué**.
