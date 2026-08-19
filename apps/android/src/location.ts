@@ -14,6 +14,15 @@ export const MIN_MOVE_M = 25;
 // Velocidad imposible en ciudad (>40 m/s = 144 km/h): el GPS entregó una
 // posición "fantasma" (antena/WiFi), no un auto real. Se descarta sin mover.
 export const MAX_SPEED_MPS = 40;
+// Si el dispositivo reporta velocidad por debajo de esto, está parado de
+// verdad: cualquier "avance" del GPS es drift (deambula sin moverse) y no
+// debe insertar puntos ni sumar km.
+export const MIN_DEVICE_SPEED_MPS = 1;
+// Radio de "zona parada" alrededor del último punto real: el GPS parado
+// deambula hasta ~80-100 m. Un avance lento (<2 m/s) dentro de esa zona es
+// drift; un auto real sale de la zona en pocos segundos.
+export const STOP_RADIUS_M = 80;
+export const MIN_ANCHOR_SPEED_MPS = 2;
 
 export interface LastFix {
   lat: number;
@@ -69,6 +78,12 @@ async function sendPoint(loc: Location.LocationObject): Promise<void> {
     // marcador, solo avisar que seguimos conectados.
     hasFix = false;
     update = false;
+  } else if (speed !== null && speed < MIN_DEVICE_SPEED_MPS) {
+    // El dispositivo dice que NO nos movemos (velocidad ~0): cualquier
+    // "avance" de la coordenada es drift del GPS parado (deambula 20-80 m
+    // sin moverse de verdad). Mantener online pero NO insertar punto ni
+    // sumar km: estando parado la ubicación no debe cambiar.
+    update = false;
   } else if (speed !== null && speed > MAX_SPEED_MPS) {
     // Velocidad reportada por el dispositivo absurda: es un error de GPS,
     // no un auto real. Mantener online sin mover el marcador.
@@ -84,6 +99,15 @@ async function sendPoint(loc: Location.LocationObject): Promise<void> {
     } else if (dt > 0 && d / dt > MAX_SPEED_MPS) {
       // Salto imposible: demasiada distancia para el tiempo transcurrido
       // (aunque el GPS diga que la precisión es buena). No mover.
+      update = false;
+    } else if (d < STOP_RADIUS_M && dt > 0 && d / dt < MIN_ANCHOR_SPEED_MPS) {
+      // Drift lento cerca del último punto real: el GPS deambula sin
+      // moverse de verdad. Un auto real sale de la zona en segundos.
+      update = false;
+    } else if (d < STOP_RADIUS_M && speed === null) {
+      // Sin velocidad del dispositivo (celulares viejos): dentro de la
+      // zona parada ser conservador — el "avance" puede ser drift rápido.
+      // Recién se inserta al salir de la zona (un auto real sale enseguida).
       update = false;
     }
   }
