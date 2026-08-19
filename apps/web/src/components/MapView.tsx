@@ -55,16 +55,21 @@ function distM(aLat: number, aLng: number, bLat: number, bLng: number): number {
 //  - No une con línea si la velocidad implícita es imposible (> 45 m/s).
 //  - Quita picos aislados: un punto lejos de sus DOS vecinos que están
 //    cerca entre sí es un error de GPS, no un desvío real.
-//  - Simplifica con Douglas-Peucker (epsilon 20 m): el ruido lateral del
+//  - Quita zigzags de señal: 2 segmentos cortos (< 60 m) que hacen casi
+//    una reversa (> 135°) son ruido del GPS, no un movimiento real
+//    (las esquinas reales son de 90° y se conservan).
+//  - Simplifica con Douglas-Peucker (epsilon 30 m): el ruido lateral del
 //    GPS hace "serpentear" la línea y suma km falsos. Los puntos que se
-//    desvían menos de 20 m de la línea recta entre vecinos son ruido y se
+//    desvían menos de 30 m de la línea recta entre vecinos son ruido y se
 //    eliminan (se conservan curvas y esquinas reales).
 //    IMPORTANTE: el km se calcula sobre la línea YA simplificada, así el
 //    pago coincide exactamente con lo que se ve dibujado.
 const MAX_SEGMENT_M = 1200;
 const MAX_TRAJ_SPEED_MPS = 45;
 const SPIKE_M = 500;
-const SIMPLIFY_EPSILON_M = 20;
+const SIMPLIFY_EPSILON_M = 30;
+const ZIGZAG_SEG_M = 60;
+const ZIGZAG_TURN_DEG = 120;
 
 interface Pt {
   lat: number;
@@ -140,6 +145,17 @@ function cleanTrajectory(points: LocationPoint[]): {
     const bc = distM(b.lat, b.lng, c.lat, c.lng);
     const ac = distM(a.lat, a.lng, c.lat, c.lng);
     if (ab > SPIKE_M && bc > SPIKE_M && ac < MAX_SEGMENT_M) continue;
+    if (ab < ZIGZAG_SEG_M && bc < ZIGZAG_SEG_M) {
+      // Dos segmentos cortos con giro casi de reversa: zigzag del ruido.
+      // cos(giro) = producto punto de los 2 vectores / producto de normas.
+      const cosLat = Math.cos(((a.lat + b.lat) / 2) * (Math.PI / 180));
+      const ux = (b.lng - a.lng) * cosLat;
+      const uy = b.lat - a.lat;
+      const vx = (c.lng - b.lng) * cosLat;
+      const vy = c.lat - b.lat;
+      const cosTurn = (ux * vx + uy * vy) / (Math.hypot(ux, uy) * Math.hypot(vx, vy));
+      if (cosTurn < Math.cos((ZIGZAG_TURN_DEG * Math.PI) / 180)) continue;
+    }
     kept.push(b);
   }
 
