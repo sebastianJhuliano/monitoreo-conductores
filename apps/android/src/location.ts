@@ -14,15 +14,15 @@ export const MIN_MOVE_M = 25;
 // Velocidad imposible en ciudad (>40 m/s = 144 km/h): el GPS entregó una
 // posición "fantasma" (antena/WiFi), no un auto real. Se descarta sin mover.
 export const MAX_SPEED_MPS = 40;
-// Si el dispositivo reporta velocidad por debajo de esto, está parado de
-// verdad: cualquier "avance" del GPS es drift (deambula sin moverse) y no
-// debe insertar puntos ni sumar km.
+// A partir de esta velocidad el dispositivo CONFIRMA movimiento real
+// (caminar/correr/auto): se inserta el punto aunque sea un avance corto.
+// Por debajo de esta velocidad (o sin dato), el "avance" puede ser drift
+// del GPS parado y se aplica la zona de parado.
 export const MIN_DEVICE_SPEED_MPS = 1;
 // Radio de "zona parada" alrededor del último punto real: el GPS parado
-// deambula hasta ~80-100 m. Un avance lento (<2 m/s) dentro de esa zona es
-// drift; un auto real sale de la zona en pocos segundos.
+// deambula hasta ~80-100 m. Solo se ignora el avance dentro de esta zona
+// cuando el dispositivo NO confirma movimiento (parado o sin velocidad).
 export const STOP_RADIUS_M = 80;
-export const MIN_ANCHOR_SPEED_MPS = 2;
 
 export interface LastFix {
   lat: number;
@@ -78,17 +78,33 @@ async function sendPoint(loc: Location.LocationObject): Promise<void> {
     // marcador, solo avisar que seguimos conectados.
     hasFix = false;
     update = false;
+  } else if (speed !== null && speed >= MIN_DEVICE_SPEED_MPS) {
+    // MOVIMIENTO CONFIRMADO por el dispositivo (fused provider: caminar
+    // reporta ~1.3 m/s, un auto >5 m/s). El avance es real aunque sea corto
+    // (caminata de 20 m) o quede dentro de la zona de parado: se inserta.
+    // Solo lo bloquea un salto imposible (distancia/tiempo > 40 m/s).
+    if (lastSent) {
+      const d = distM(lastSent.lat, lastSent.lng, lat, lng);
+      const dt = (Date.now() - lastSentAt) / 1000;
+      if (dt > 0 && d / dt > MAX_SPEED_MPS) {
+        update = false;
+      }
+    }
+  } else if (speed !== null && speed > MAX_SPEED_MPS) {
+    // Velocidad reportada por el dispositivo absurda: es un error de GPS,
+    // no un auto real. Mantener online sin mover el marcador.
+    update = false;
   } else if (speed !== null && speed < MIN_DEVICE_SPEED_MPS) {
     // El dispositivo dice que NO nos movemos (velocidad ~0): cualquier
     // "avance" de la coordenada es drift del GPS parado (deambula 20-80 m
     // sin moverse de verdad). Mantener online pero NO insertar punto ni
     // sumar km: estando parado la ubicación no debe cambiar.
     update = false;
-  } else if (speed !== null && speed > MAX_SPEED_MPS) {
-    // Velocidad reportada por el dispositivo absurda: es un error de GPS,
-    // no un auto real. Mantener online sin mover el marcador.
-    update = false;
   } else if (lastSent) {
+    // SIN velocidad del dispositivo (celulares viejos, GPS de baja calidad):
+    // ser conservador — posicionalmente un avance corto es indistinguible
+    // del drift. Dentro de la zona parada NO se inserta; recién al salir de
+    // la zona se asume movimiento real (un auto sale en segundos).
     const d = distM(lastSent.lat, lastSent.lng, lat, lng);
     const dt = (Date.now() - lastSentAt) / 1000;
     if (d < MIN_MOVE_M || (acc !== null && d < acc)) {
@@ -100,14 +116,8 @@ async function sendPoint(loc: Location.LocationObject): Promise<void> {
       // Salto imposible: demasiada distancia para el tiempo transcurrido
       // (aunque el GPS diga que la precisión es buena). No mover.
       update = false;
-    } else if (d < STOP_RADIUS_M && dt > 0 && d / dt < MIN_ANCHOR_SPEED_MPS) {
-      // Drift lento cerca del último punto real: el GPS deambula sin
-      // moverse de verdad. Un auto real sale de la zona en segundos.
-      update = false;
-    } else if (d < STOP_RADIUS_M && speed === null) {
-      // Sin velocidad del dispositivo (celulares viejos): dentro de la
-      // zona parada ser conservador — el "avance" puede ser drift rápido.
-      // Recién se inserta al salir de la zona (un auto real sale enseguida).
+    } else if (d < STOP_RADIUS_M) {
+      // Drift dentro de la zona parada (no sabemos si es real o GPS).
       update = false;
     }
   }
@@ -186,7 +196,7 @@ export async function startTracking(): Promise<void> {
   await Location.startLocationUpdatesAsync(LOCATION_TASK, {
     accuracy: Location.Accuracy.Highest,
     distanceInterval: 10,
-    timeInterval: 15_000,
+    timeInterval: 7_000,
     pausesUpdatesAutomatically: false,
     foregroundService: {
       notificationTitle: 'Monitoreo activo',
